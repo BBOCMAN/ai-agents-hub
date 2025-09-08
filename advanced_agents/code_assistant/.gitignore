@@ -1,0 +1,86 @@
+# Environment and Configuration Files
+config.py
+.env
+.env.local
+.env.production
+.env.development
+*.env
+
+# Python Environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Virtual Environment (multiple naming conventions)
+venv/
+env/
+ENV/
+.venv/
+.env/
+python-env/
+code-assistant-env/
+
+# Vector Store Data (FAISS and other vector stores)
+vector_store/*.faiss
+vector_store/*.pkl
+vector_store/*.index
+vector_store/chroma.sqlite3
+vector_store/index/
+vector_store/db/
+*.faiss
+*.pkl
+
+# API Keys and Secrets
+api_keys.txt
+secrets.json
+credentials.json
+service-account.json
+
+# Logs and Debugging
+logs/
+*.log
+debug.log
+error.log
+app.log
+
+# Temporary and Cache Files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.cache/
+temp/
+
+# IDE and Editor Files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Model and Data Files
+*.model
+*.bin
+*.h5
+*.weights
+data/
+datasets/
+models/
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

@@ -1,0 +1,1187 @@
+# Comprehensive Python Programming Guide
+
+## Data Structures and Advanced Operations
+
+### Lists - Dynamic Arrays
+Lists are ordered, mutable collections that can store any data type:
+
+```python
+# Creating and initializing lists
+numbers = [1, 2, 3, 4, 5]
+names = ['Alice', 'Bob', 'Charlie']
+mixed_list = [1, 'hello', 3.14, True, [1, 2, 3]]
+empty_list = []
+
+# Advanced list operations
+numbers.append(6)              # Add single element
+numbers.extend([7, 8, 9])      # Add multiple elements
+numbers.insert(0, 0)           # Insert at specific position
+popped = numbers.pop()         # Remove and return last element
+removed = numbers.remove(5)    # Remove first occurrence of value
+
+# Indexing and slicing
+first_item = numbers[0]        # First element
+last_item = numbers[-1]       # Last element
+middle_items = numbers[2:5]    # Slice from index 2 to 4
+reversed_list = numbers[::-1]  # Reverse the list
+every_second = numbers[::2]    # Every second element
+
+# List comprehensions - Pythonic way to create lists
+squares = [x**2 for x in range(10)]
+even_numbers = [x for x in numbers if x % 2 == 0]
+nested_comprehension = [[i*j for j in range(3)] for i in range(3)]
+
+# Advanced list methods
+numbers.sort()                 # Sort in place
+sorted_copy = sorted(numbers)  # Return sorted copy
+numbers.reverse()              # Reverse in place
+count_fives = numbers.count(5) # Count occurrences
+index_of_five = numbers.index(5) # Find index of element
+
+# List unpacking and multiple assignment
+a, b, c = [1, 2, 3]           # Unpack into variables
+first, *middle, last = numbers # Unpack with rest operator
+
+# Memory-efficient operations
+from itertools import islice
+large_list = list(range(1000000))
+chunk = list(islice(large_list, 100, 200))  # Get slice without loading all
+```
+### Dictionaries - Key-Value Mappings
+Dictionaries store key-value pairs with fast O(1) average lookup time:
+
+```python
+# Creating dictionaries
+person = {'name': 'John', 'age': 30, 'city': 'New York'}
+empty_dict = {}
+dict_from_pairs = dict([('a', 1), ('b', 2)])
+dict_with_defaults = {'x': 0, 'y': 0, 'z': 0}
+
+# Accessing and modifying values
+name = person['name']                    # Direct access (raises KeyError if missing)
+age = person.get('age', 0)              # Safe access with default
+person['email'] = 'john@email.com'      # Adding new key-value pair
+person.update({'phone': '123-456-7890', 'country': 'USA'})  # Update multiple
+
+# Advanced dictionary operations
+keys_list = list(person.keys())         # Get all keys
+values_list = list(person.values())     # Get all values
+items_list = list(person.items())       # Get key-value pairs
+
+# Dictionary comprehensions
+squared_dict = {x: x**2 for x in range(5)}
+filtered_dict = {k: v for k, v in person.items() if isinstance(v, str)}
+transformed_dict = {k.upper(): str(v) for k, v in person.items()}
+
+# Advanced dictionary methods
+copied_dict = person.copy()             # Shallow copy
+person.setdefault('salary', 50000)     # Set if key doesn't exist
+person.pop('age', None)                 # Remove and return value
+person.popitem()                        # Remove and return arbitrary item
+
+# Merging dictionaries (Python 3.9+)
+dict1 = {'a': 1, 'b': 2}
+dict2 = {'c': 3, 'd': 4}
+merged = dict1 | dict2                  # Union operator
+dict1 |= dict2                          # In-place union
+
+# Nested dictionaries
+student = {
+    'personal': {'name': 'Alice', 'age': 20},
+    'academic': {'major': 'CS', 'gpa': 3.8},
+    'courses': ['Python', 'Data Structures', 'Algorithms']
+}
+
+# Safe nested access
+from collections import defaultdict
+nested_dict = defaultdict(lambda: defaultdict(int))
+nested_dict['level1']['level2'] = 42
+
+# Dictionary as counter
+from collections import Counter
+word_count = Counter(['apple', 'banana', 'apple', 'cherry'])
+print(word_count.most_common(2))  # [('apple', 2), ('banana', 1)]
+```
+### Sets and Tuples - Specialized Collections
+
+#### Sets - Unique Elements with Mathematical Operations
+```python
+# Creating sets
+unique_numbers = {1, 2, 3, 4, 5}
+empty_set = set()  # Note: {} creates an empty dict, not set
+set_from_list = set([1, 2, 2, 3, 3, 4])  # Automatically removes duplicates
+
+# Set operations
+unique_numbers.add(6)                    # Add element
+unique_numbers.update([7, 8, 9])         # Add multiple elements
+unique_numbers.remove(1)                 # Remove element (raises KeyError if missing)
+unique_numbers.discard(1)                # Remove element (no error if missing)
+
+# Mathematical set operations
+set1 = {1, 2, 3, 4}
+set2 = {3, 4, 5, 6}
+
+union = set1 | set2                      # Union: {1, 2, 3, 4, 5, 6}
+intersection = set1 & set2               # Intersection: {3, 4}
+difference = set1 - set2                 # Difference: {1, 2}
+symmetric_diff = set1 ^ set2             # Symmetric difference: {1, 2, 5, 6}
+
+# Set relationships
+is_subset = {1, 2}.issubset(set1)        # True
+is_superset = set1.issuperset({1, 2})    # True
+is_disjoint = set1.isdisjoint({7, 8})    # True
+
+# Frozen sets (immutable)
+frozen = frozenset([1, 2, 3])
+# frozen.add(4)  # This would raise AttributeError
+```
+
+#### Tuples - Immutable Sequences
+```python
+# Creating tuples
+coordinates = (10, 20)
+rgb_color = (255, 128, 0)
+single_item = (42,)  # Note the comma for single-item tuple
+empty_tuple = ()
+
+# Tuple unpacking
+x, y = coordinates
+r, g, b = rgb_color
+
+# Named tuples for structured data
+from collections import namedtuple
+Point = namedtuple('Point', ['x', 'y'])
+Rectangle = namedtuple('Rectangle', ['width', 'height', 'color'])
+
+point = Point(10, 20)
+rect = Rectangle(100, 50, 'blue')
+
+print(f"Point coordinates: {point.x}, {point.y}")
+print(f"Rectangle area: {rect.width * rect.height}")
+
+# Tuple methods
+numbers_tuple = (1, 2, 3, 2, 4, 2)
+count_twos = numbers_tuple.count(2)      # Count occurrences
+index_of_three = numbers_tuple.index(3)  # Find index
+
+# Using tuples as dictionary keys (because they're hashable)
+locations = {
+    (0, 0): 'origin',
+    (1, 0): 'east',
+    (0, 1): 'north'
+}
+
+# Tuple vs List performance comparison
+import timeit
+list_time = timeit.timeit(lambda: [1, 2, 3, 4, 5], number=1000000)
+tuple_time = timeit.timeit(lambda: (1, 2, 3, 4, 5), number=1000000)
+print(f"Tuple creation is {list_time/tuple_time:.2f}x faster than list")
+```
+## File Operations and Data Persistence
+
+### Reading Files - Multiple Approaches and Best Practices
+```python
+import os
+import json
+import csv
+import pickle
+from pathlib import Path
+
+# Basic text file reading
+with open('file.txt', 'r', encoding='utf-8') as f:
+    content = f.read()                   # Read entire file
+    
+with open('file.txt', 'r', encoding='utf-8') as f:
+    lines = f.readlines()                # Read all lines as list
+    
+with open('file.txt', 'r', encoding='utf-8') as f:
+    for line_num, line in enumerate(f, 1):  # Read line by line (memory efficient)
+        print(f"Line {line_num}: {line.strip()}")
+
+# Using pathlib (modern approach)
+file_path = Path('data/input.txt')
+if file_path.exists():
+    content = file_path.read_text(encoding='utf-8')
+    lines = content.splitlines()
+
+# Reading CSV files with error handling
+try:
+    with open('data.csv', 'r', newline='', encoding='utf-8') as f:
+        csv_reader = csv.DictReader(f)  # Returns dictionaries
+        for row in csv_reader:
+            print(f"Name: {row['name']}, Age: {row['age']}")
+            
+    # Alternative: using csv.reader for lists
+    with open('data.csv', 'r', newline='', encoding='utf-8') as f:
+        csv_reader = csv.reader(f)
+        headers = next(csv_reader)  # Get headers
+        for row in csv_reader:
+            print(dict(zip(headers, row)))
+            
+except FileNotFoundError:
+    print("CSV file not found")
+except csv.Error as e:
+    print(f"CSV reading error: {e}")
+
+# Reading JSON files
+try:
+    with open('config.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        print(f"Loaded JSON: {data}")
+except json.JSONDecodeError as e:
+    print(f"Invalid JSON: {e}")
+except FileNotFoundError:
+    print("JSON file not found")
+
+# Reading binary files
+with open('image.jpg', 'rb') as f:
+    binary_data = f.read()
+    print(f"File size: {len(binary_data)} bytes")
+
+# Reading large files efficiently (generators)
+def read_large_file(file_path, chunk_size=1024):
+    """Generator to read large files in chunks"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+# Reading files with different encodings
+encodings_to_try = ['utf-8', 'latin-1', 'cp1252']
+for encoding in encodings_to_try:
+    try:
+        with open('unknown_encoding.txt', 'r', encoding=encoding) as f:
+            content = f.read()
+            print(f"Successfully read with {encoding}")
+            break
+    except UnicodeDecodeError:
+        continue
+```
+### Writing Files - Safe and Efficient Methods
+```python
+import json
+import csv
+import pickle
+from pathlib import Path
+import tempfile
+import shutil
+
+# Basic text file writing
+with open('output.txt', 'w', encoding='utf-8') as f:
+    f.write('Hello, World!\n')
+    f.writelines(['Line 1\n', 'Line 2\n', 'Line 3\n'])
+
+# Appending to files
+with open('log.txt', 'a', encoding='utf-8') as f:
+    f.write(f'Log entry at {datetime.now()}\n')
+
+# Using pathlib for modern file operations
+output_path = Path('data/output.txt')
+output_path.parent.mkdir(parents=True, exist_ok=True)  # Create directories
+output_path.write_text('Content via pathlib', encoding='utf-8')
+
+# Writing CSV files with proper headers and data types
+data = [
+    {'name': 'Alice', 'age': 25, 'salary': 50000.0},
+    {'name': 'Bob', 'age': 30, 'salary': 60000.0},
+    {'name': 'Charlie', 'age': 35, 'salary': 70000.0}
+]
+
+with open('employees.csv', 'w', newline='', encoding='utf-8') as f:
+    fieldnames = ['name', 'age', 'salary']
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(data)
+
+# Alternative CSV writing with lists
+with open('simple.csv', 'w', newline='', encoding='utf-8') as f:
+    writer = csv.writer(f)
+    writer.writerow(['Name', 'Age', 'City'])  # Header
+    writer.writerows([
+        ['John', 30, 'New York'],
+        ['Jane', 25, 'Los Angeles']
+    ])
+
+# Writing JSON with proper formatting
+config_data = {
+    'database': {
+        'host': 'localhost',
+        'port': 5432,
+        'name': 'myapp'
+    },
+    'features': ['auth', 'logging', 'caching'],
+    'debug': True
+}
+
+with open('config.json', 'w', encoding='utf-8') as f:
+    json.dump(config_data, f, indent=2, ensure_ascii=False)
+
+# Safe file writing with atomic operations
+def write_file_atomically(filename, content):
+    """Write file atomically to prevent corruption"""
+    temp_file = None
+    try:
+        # Write to temporary file first
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, 
+                                       dir=os.path.dirname(filename)) as temp_file:
+            temp_file.write(content)
+            temp_filename = temp_file.name
+        
+        # Atomically replace original file
+        shutil.move(temp_filename, filename)
+        
+    except Exception as e:
+        # Clean up temporary file on error
+        if temp_file and os.path.exists(temp_file.name):
+            os.unlink(temp_file.name)
+        raise e
+
+# Writing binary data (serialization)
+data_to_serialize = {
+    'numbers': [1, 2, 3, 4, 5],
+    'text': 'Hello, Pickle!',
+    'nested': {'key': 'value'}
+}
+
+# Using pickle for Python object serialization
+with open('data.pkl', 'wb') as f:
+    pickle.dump(data_to_serialize, f)
+
+# Reading it back
+with open('data.pkl', 'rb') as f:
+    loaded_data = pickle.load(f)
+    print(f"Loaded data: {loaded_data}")
+
+# File backup before writing
+def backup_and_write(filename, content):
+    """Create backup before overwriting file"""
+    if os.path.exists(filename):
+        backup_name = f"{filename}.backup"
+        shutil.copy2(filename, backup_name)
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+# Logging file operations
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def logged_file_write(filename, content):
+    """Write file with logging"""
+    try:
+        logger.info(f"Writing to file: {filename}")
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(content)
+        logger.info(f"Successfully wrote {len(content)} characters")
+    except Exception as e:
+        logger.error(f"Failed to write file {filename}: {e}")
+        raise
+```
+## Functions and Classes - Advanced Programming Constructs
+
+### Functions - Building Blocks of Python Programs
+```python
+import functools
+from typing import List, Dict, Any, Optional, Callable, Union
+from datetime import datetime
+
+# Basic function with comprehensive documentation
+def calculate_area(length: float, width: float) -> float:
+    """
+    Calculate the area of a rectangle.
+    
+    Args:
+        length (float): The length of the rectangle
+        width (float): The width of the rectangle
+    
+    Returns:
+        float: The area of the rectangle
+    
+    Raises:
+        ValueError: If length or width is negative
+        TypeError: If inputs are not numeric
+    
+    Examples:
+        >>> calculate_area(5, 3)
+        15.0
+        >>> calculate_area(2.5, 4.0)
+        10.0
+    """
+    if not isinstance(length, (int, float)) or not isinstance(width, (int, float)):
+        raise TypeError("Length and width must be numeric")
+    
+    if length < 0 or width < 0:
+        raise ValueError("Length and width must be non-negative")
+    
+    return length * width
+
+# Advanced function with multiple parameter types
+def process_data(data: List[Union[int, float]], 
+                operation: str = 'sum',
+                filter_func: Optional[Callable] = None,
+                **kwargs) -> Union[float, List]:
+    """
+    Process a list of numbers with various operations.
+    
+    Args:
+        data: List of numbers to process
+        operation: Operation to perform ('sum', 'average', 'max', 'min', 'filter')
+        filter_func: Optional function to filter data
+        **kwargs: Additional arguments for specific operations
+    
+    Returns:
+        Result of the operation (float for aggregations, list for filters)
+    """
+    if not data:
+        return 0 if operation in ['sum', 'average'] else []
+    
+    # Apply filter if provided
+    if filter_func:
+        data = list(filter(filter_func, data))
+    
+    if operation == 'sum':
+        return sum(data)
+    elif operation == 'average':
+        return sum(data) / len(data) if data else 0
+    elif operation == 'max':
+        return max(data) if data else float('-inf')
+    elif operation == 'min':
+        return min(data) if data else float('inf')
+    elif operation == 'median':
+        sorted_data = sorted(data)
+        n = len(sorted_data)
+        if n % 2 == 0:
+            return (sorted_data[n//2 - 1] + sorted_data[n//2]) / 2
+        return sorted_data[n//2]
+    elif operation == 'filter':
+        return data
+    else:
+        return data
+
+# Higher-order functions and decorators
+def timing_decorator(func: Callable) -> Callable:
+    """Decorator to measure function execution time"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = datetime.now()
+        result = func(*args, **kwargs)
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        print(f"{func.__name__} executed in {duration:.4f} seconds")
+        return result
+    return wrapper
+
+def retry_decorator(max_attempts: int = 3, delay: float = 1.0):
+    """Decorator to retry function on failure"""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            import time
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise e
+                    print(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+        return wrapper
+    return decorator
+
+# Using decorators
+@timing_decorator
+@retry_decorator(max_attempts=3)
+def risky_calculation(x: float) -> float:
+    """A function that might fail but we want to retry"""
+    import random
+    if random.random() < 0.3:  # 30% chance of failure
+        raise ValueError("Random failure!")
+    return x ** 2 + 2 * x + 1
+
+# Lambda functions and functional programming
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Using lambda with built-in functions
+squared = list(map(lambda x: x**2, numbers))
+evens = list(filter(lambda x: x % 2 == 0, numbers))
+sum_all = functools.reduce(lambda x, y: x + y, numbers)
+
+# More complex lambda usage
+employees = [
+    {'name': 'Alice', 'salary': 50000, 'department': 'Engineering'},
+    {'name': 'Bob', 'salary': 60000, 'department': 'Sales'},
+    {'name': 'Charlie', 'salary': 55000, 'department': 'Engineering'}
+]
+
+# Sort by salary (descending)
+sorted_by_salary = sorted(employees, key=lambda emp: emp['salary'], reverse=True)
+
+# Group by department
+from itertools import groupby
+grouped = {dept: list(group) for dept, group in 
+          groupby(sorted(employees, key=lambda x: x['department']), 
+                 key=lambda x: x['department'])}
+
+# Generator functions for memory efficiency
+def fibonacci_generator(n: int):
+    """Generate Fibonacci numbers up to n"""
+    a, b = 0, 1
+    count = 0
+    while count < n:
+        yield a
+        a, b = b, a + b
+        count += 1
+
+def file_line_generator(filename: str):
+    """Generator to read file lines one by one"""
+    with open(filename, 'r', encoding='utf-8') as f:
+        for line_num, line in enumerate(f, 1):
+            yield line_num, line.strip()
+
+# Closure example
+def create_multiplier(factor: float) -> Callable[[float], float]:
+    """Create a multiplier function with enclosed factor"""
+    def multiplier(value: float) -> float:
+        return value * factor
+    return multiplier
+
+double = create_multiplier(2)
+triple = create_multiplier(3)
+
+# Partial functions
+from functools import partial
+
+def power(base: float, exponent: float) -> float:
+    return base ** exponent
+
+square = partial(power, exponent=2)  # Partial application
+cube = partial(power, exponent=3)
+
+print(f"Square of 5: {square(5)}")  # 25
+print(f"Cube of 3: {cube(3)}")     # 27
+```
+### Classes - Object-Oriented Programming Mastery
+```python
+from abc import ABC, abstractmethod
+from typing import List, Optional, ClassVar
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import logging
+
+# Basic class with comprehensive features
+class Person:
+    """
+    A class representing a person with various attributes and behaviors.
+    
+    Class Attributes:
+        species (str): The species of all persons
+        population (int): Total number of Person instances created
+    """
+    
+    # Class variables
+    species: ClassVar[str] = "Homo sapiens"
+    population: ClassVar[int] = 0
+    
+    def __init__(self, name: str, age: int, email: Optional[str] = None):
+        """
+        Initialize a Person instance.
+        
+        Args:
+            name: The person's full name
+            age: The person's age in years
+            email: Optional email address
+        
+        Raises:
+            ValueError: If age is negative or name is empty
+        """
+        if not name.strip():
+            raise ValueError("Name cannot be empty")
+        if age < 0:
+            raise ValueError("Age cannot be negative")
+        
+        # Instance variables
+        self._name = name.strip()
+        self._age = age
+        self._email = email
+        self._birth_year = 2024 - age  # Simplified calculation
+        
+        # Increment class population
+        Person.population += 1
+        
+        # Setup logging
+        self._logger = logging.getLogger(f"{self.__class__.__name__}.{self._name}")
+        self._logger.info(f"Created person: {self._name}")
+    
+    # Property decorators for controlled access
+    @property
+    def name(self) -> str:
+        """Get the person's name"""
+        return self._name
+    
+    @property
+    def age(self) -> int:
+        """Get the person's age"""
+        return self._age
+    
+    @age.setter
+    def age(self, value: int) -> None:
+        """Set the person's age with validation"""
+        if value < 0:
+            raise ValueError("Age cannot be negative")
+        if value > 150:
+            raise ValueError("Age seems unrealistic")
+        self._logger.info(f"Age changed from {self._age} to {value}")
+        self._age = value
+        self._birth_year = 2024 - value
+    
+    @property
+    def email(self) -> Optional[str]:
+        """Get the person's email"""
+        return self._email
+    
+    @email.setter
+    def email(self, value: Optional[str]) -> None:
+        """Set email with basic validation"""
+        if value and '@' not in value:
+            raise ValueError("Invalid email format")
+        self._email = value
+    
+    # Instance methods
+    def introduce(self) -> str:
+        """Return a friendly introduction"""
+        intro = f"Hi, I'm {self._name} and I'm {self._age} years old"
+        if self._email:
+            intro += f". You can reach me at {self._email}"
+        return intro
+    
+    def have_birthday(self) -> str:
+        """Increment age and return birthday message"""
+        old_age = self._age
+        self._age += 1
+        self._birth_year -= 1
+        return f"Happy birthday! {self._name} is now {self._age} (was {old_age})"
+    
+    def is_adult(self) -> bool:
+        """Check if person is an adult (18+)"""
+        return self._age >= 18
+    
+    def years_until_retirement(self, retirement_age: int = 65) -> int:
+        """Calculate years until retirement"""
+        return max(0, retirement_age - self._age)
+    
+    # Magic methods (dunder methods)
+    def __str__(self) -> str:
+        """String representation for end users"""
+        return f"{self._name} (age {self._age})"
+    
+    def __repr__(self) -> str:
+        """String representation for developers"""
+        return f"Person(name='{self._name}', age={self._age}, email='{self._email}')"
+    
+    def __eq__(self, other) -> bool:
+        """Check equality based on name and age"""
+        if not isinstance(other, Person):
+            return NotImplemented
+        return self._name == other._name and self._age == other._age
+    
+    def __hash__(self) -> int:
+        """Make Person hashable for use in sets/dicts"""
+        return hash((self._name, self._age))
+    
+    def __lt__(self, other) -> bool:
+        """Enable sorting by age"""
+        if not isinstance(other, Person):
+            return NotImplemented
+        return self._age < other._age
+    
+    # Class methods
+    @classmethod
+    def get_population(cls) -> int:
+        """Get total number of Person instances created"""
+        return cls.population
+    
+    @classmethod
+    def from_string(cls, person_str: str) -> 'Person':
+        """Create Person from string format 'Name,Age,Email'"""
+        parts = person_str.split(',')
+        name = parts[0].strip()
+        age = int(parts[1].strip())
+        email = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
+        return cls(name, age, email)
+    
+    # Static methods
+    @staticmethod
+    def is_valid_age(age: int) -> bool:
+        """Check if age is valid"""
+        return 0 <= age <= 150
+    
+    @staticmethod
+    def calculate_age_from_year(birth_year: int, current_year: int = 2024) -> int:
+        """Calculate age from birth year"""
+        return current_year - birth_year
+
+# Inheritance and polymorphism
+class Employee(Person):
+    """Employee class inheriting from Person"""
+    
+    def __init__(self, name: str, age: int, employee_id: str, 
+                 salary: float, department: str, email: Optional[str] = None):
+        super().__init__(name, age, email)  # Call parent constructor
+        self._employee_id = employee_id
+        self._salary = salary
+        self._department = department
+        self._is_active = True
+    
+    @property
+    def employee_id(self) -> str:
+        return self._employee_id
+    
+    @property
+    def salary(self) -> float:
+        return self._salary
+    
+    @salary.setter
+    def salary(self, value: float) -> None:
+        if value < 0:
+            raise ValueError("Salary cannot be negative")
+        self._logger.info(f"Salary changed from {self._salary} to {value}")
+        self._salary = value
+    
+    @property
+    def department(self) -> str:
+        return self._department
+    
+    def introduce(self) -> str:
+        """Override parent method with employee-specific info"""
+        base_intro = super().introduce()
+        return f"{base_intro}. I work in {self._department} as employee #{self._employee_id}"
+    
+    def give_raise(self, percentage: float) -> str:
+        """Give percentage-based salary raise"""
+        if percentage < 0:
+            raise ValueError("Raise percentage cannot be negative")
+        
+        old_salary = self._salary
+        self._salary *= (1 + percentage / 100)
+        return f"Salary increased by {percentage}% from ${old_salary:.2f} to ${self._salary:.2f}"
+    
+    def terminate(self) -> str:
+        """Terminate employee"""
+        self._is_active = False
+        return f"Employee {self._employee_id} has been terminated"
+    
+    def __repr__(self) -> str:
+        return (f"Employee(name='{self.name}', age={self.age}, "
+                f"employee_id='{self._employee_id}', salary={self._salary}, "
+                f"department='{self._department}')")
+
+# Abstract base classes
+class Shape(ABC):
+    """Abstract base class for shapes"""
+    
+    def __init__(self, name: str):
+        self.name = name
+    
+    @abstractmethod
+    def area(self) -> float:
+        """Calculate area - must be implemented by subclasses"""
+        pass
+    
+    @abstractmethod
+    def perimeter(self) -> float:
+        """Calculate perimeter - must be implemented by subclasses"""
+        pass
+    
+    def description(self) -> str:
+        """Concrete method available to all subclasses"""
+        return f"This is a {self.name} with area {self.area():.2f} and perimeter {self.perimeter():.2f}"
+
+class Rectangle(Shape):
+    """Rectangle implementation of Shape"""
+    
+    def __init__(self, width: float, height: float):
+        super().__init__("Rectangle")
+        self.width = width
+        self.height = height
+    
+    def area(self) -> float:
+        return self.width * self.height
+    
+    def perimeter(self) -> float:
+        return 2 * (self.width + self.height)
+
+class Circle(Shape):
+    """Circle implementation of Shape"""
+    
+    def __init__(self, radius: float):
+        super().__init__("Circle")
+        self.radius = radius
+    
+    def area(self) -> float:
+        import math
+        return math.pi * self.radius ** 2
+    
+    def perimeter(self) -> float:
+        import math
+        return 2 * math.pi * self.radius
+
+# Dataclasses for simple data containers
+@dataclass
+class Product:
+    """Product data class with automatic methods"""
+    name: str
+    price: float
+    category: str
+    in_stock: bool = True
+    tags: List[str] = field(default_factory=list)
+    
+    def __post_init__(self):
+        """Validation after initialization"""
+        if self.price < 0:
+            raise ValueError("Price cannot be negative")
+        if not self.name.strip():
+            raise ValueError("Name cannot be empty")
+    
+    def apply_discount(self, percentage: float) -> float:
+        """Apply discount and return new price"""
+        if not 0 <= percentage <= 100:
+            raise ValueError("Discount percentage must be between 0 and 100")
+        
+        discount_amount = self.price * (percentage / 100)
+        self.price -= discount_amount
+        return self.price
+    
+    def add_tag(self, tag: str) -> None:
+        """Add tag if not already present"""
+        if tag not in self.tags:
+            self.tags.append(tag)
+
+# Enums for constants
+class OrderStatus(Enum):
+    """Enumeration for order statuses"""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+class Priority(Enum):
+    """Enumeration with automatic values"""
+    LOW = auto()
+    MEDIUM = auto()
+    HIGH = auto()
+    URGENT = auto()
+
+# Context managers
+class DatabaseConnection:
+    """Example context manager for database connections"""
+    
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+        self.connection = None
+    
+    def __enter__(self):
+        """Enter context - establish connection"""
+        print(f"Connecting to database: {self.connection_string}")
+        self.connection = f"Connected to {self.connection_string}"
+        return self.connection
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context - close connection"""
+        print("Closing database connection")
+        self.connection = None
+        
+        # Handle exceptions
+        if exc_type:
+            print(f"Exception occurred: {exc_type.__name__}: {exc_val}")
+            return False  # Re-raise exception
+        return True
+
+# Usage examples
+if __name__ == "__main__":
+    # Create instances
+    person1 = Person("Alice Johnson", 28, "alice@email.com")
+    person2 = Person("Bob Smith", 35)
+    employee1 = Employee("Charlie Brown", 30, "EMP001", 75000, "Engineering")
+    
+    # Use the classes
+    print(person1.introduce())
+    print(person1.have_birthday())
+    print(f"Population: {Person.get_population()}")
+    
+    # Polymorphism example
+    shapes = [
+        Rectangle(5, 3),
+        Circle(4),
+        Rectangle(2, 8)
+    ]
+    
+    for shape in shapes:
+        print(shape.description())
+    
+    # Using context manager
+    with DatabaseConnection("postgresql://localhost:5432/mydb") as conn:
+        print(f"Using connection: {conn}")
+    
+    # Dataclass usage
+    product = Product("Laptop", 999.99, "Electronics", tags=["portable", "computing"])
+    product.apply_discount(10)
+    print(f"Product after discount: {product}")
+```
+
+## Exception Handling and Error Management
+
+### Comprehensive Error Handling Patterns
+```python
+import traceback
+import sys
+import logging
+from typing import Optional, Type, Any
+from contextlib import contextmanager
+
+# Custom exception hierarchy
+class ApplicationError(Exception):
+    """Base exception for application-specific errors"""
+    
+    def __init__(self, message: str, error_code: Optional[str] = None, 
+                 details: Optional[dict] = None):
+        self.message = message
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(self.message)
+
+class ValidationError(ApplicationError):
+    """Raised when data validation fails"""
+    pass
+
+class ConfigurationError(ApplicationError):
+    """Raised when configuration is invalid"""
+    pass
+
+class ProcessingError(ApplicationError):
+    """Raised when data processing fails"""
+    pass
+
+# Exception handling with logging
+def safe_division(a: float, b: float) -> Optional[float]:
+    """
+    Safely divide two numbers with comprehensive error handling.
+    
+    Args:
+        a: Dividend
+        b: Divisor
+    
+    Returns:
+        Result of division or None if error occurs
+    
+    Raises:
+        ValidationError: If inputs are invalid
+    """
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Input validation
+        if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+            raise ValidationError(
+                "Inputs must be numeric", 
+                error_code="INVALID_TYPE",
+                details={"a_type": type(a).__name__, "b_type": type(b).__name__}
+            )
+        
+        if b == 0:
+            raise ValidationError(
+                "Division by zero", 
+                error_code="DIVISION_BY_ZERO",
+                details={"dividend": a, "divisor": b}
+            )
+        
+        result = a / b
+        logger.info(f"Successfully divided {a} by {b} = {result}")
+        return result
+        
+    except ValidationError:
+        logger.error(f"Validation error in division: {a} / {b}")
+        raise  # Re-raise validation errors
+    
+    except Exception as e:
+        logger.error(f"Unexpected error in division: {e}")
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
+        return None
+
+# Context manager for error handling
+@contextmanager
+def error_handler(operation_name: str, reraise: bool = True):
+    """
+    Context manager for consistent error handling and logging.
+    
+    Args:
+        operation_name: Name of the operation for logging
+        reraise: Whether to re-raise exceptions
+    """
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"Starting operation: {operation_name}")
+        yield
+        logger.info(f"Successfully completed: {operation_name}")
+        
+    except Exception as e:
+        logger.error(f"Error in {operation_name}: {type(e).__name__}: {e}")
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
+        
+        if reraise:
+            raise
+        else:
+            return None
+
+# Retry mechanism with exponential backoff
+def retry_with_backoff(max_attempts: int = 3, base_delay: float = 1.0, 
+                      max_delay: float = 60.0, backoff_factor: float = 2.0):
+    """
+    Decorator for retrying functions with exponential backoff.
+    
+    Args:
+        max_attempts: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay in seconds
+        backoff_factor: Factor to multiply delay by each attempt
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            import time
+            import random
+            
+            last_exception = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                
+                except Exception as e:
+                    last_exception = e
+                    
+                    if attempt == max_attempts - 1:
+                        # Last attempt failed, re-raise
+                        raise e
+                    
+                    # Calculate delay with jitter
+                    delay = min(base_delay * (backoff_factor ** attempt), max_delay)
+                    jitter = random.uniform(0.1, 0.3) * delay
+                    total_delay = delay + jitter
+                    
+                    logging.warning(f"Attempt {attempt + 1} failed: {e}. "
+                                  f"Retrying in {total_delay:.2f} seconds...")
+                    time.sleep(total_delay)
+            
+            # This should never be reached, but just in case
+            raise last_exception
+        
+        return wrapper
+    return decorator
+
+# Example usage of advanced error handling
+@retry_with_backoff(max_attempts=3, base_delay=0.5)
+def risky_network_operation(url: str) -> str:
+    """Simulate a network operation that might fail"""
+    import random
+    import requests
+    
+    if random.random() < 0.4:  # 40% chance of failure
+        raise requests.ConnectionError("Simulated network failure")
+    
+    return f"Successfully connected to {url}"
+
+# Comprehensive error reporting
+class ErrorReporter:
+    """Centralized error reporting and tracking"""
+    
+    def __init__(self):
+        self.errors = []
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    def report_error(self, error: Exception, context: dict = None) -> str:
+        """
+        Report an error with full context and tracking.
+        
+        Args:
+            error: The exception that occurred
+            context: Additional context information
+        
+        Returns:
+            Error ID for tracking
+        """
+        import uuid
+        
+        error_id = str(uuid.uuid4())
+        
+        error_info = {
+            'id': error_id,
+            'timestamp': datetime.now().isoformat(),
+            'type': type(error).__name__,
+            'message': str(error),
+            'traceback': traceback.format_exc(),
+            'context': context or {}
+        }
+        
+        self.errors.append(error_info)
+        self.logger.error(f"Error {error_id}: {error_info}")
+        
+        return error_id
+    
+    def get_error_summary(self) -> dict:
+        """Get summary of all reported errors"""
+        if not self.errors:
+            return {'total_errors': 0, 'error_types': {}}
+        
+        error_types = {}
+        for error in self.errors:
+            error_type = error['type']
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+        
+        return {
+            'total_errors': len(self.errors),
+            'error_types': error_types,
+            'latest_error': self.errors[-1] if self.errors else None
+        }
+
+# Usage examples
+if __name__ == "__main__":
+    # Setup logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # Error handling examples
+    try:
+        result = safe_division(10, 0)
+    except ValidationError as e:
+        print(f"Validation error: {e.message} (Code: {e.error_code})")
+        print(f"Details: {e.details}")
+    
+    # Using context manager
+    with error_handler("file_processing", reraise=False):
+        # Simulate file processing that might fail
+        with open("nonexistent_file.txt", "r") as f:
+            content = f.read()
+    
+    # Using retry decorator
+    try:
+        result = risky_network_operation("https://api.example.com")
+        print(f"Network operation result: {result}")
+    except Exception as e:
+        print(f"Network operation failed after retries: {e}")
+    
+    # Error reporting
+    reporter = ErrorReporter()
+    try:
+        # Simulate some error
+        raise ProcessingError("Data processing failed", "PROC_001")
+    except Exception as e:
+        error_id = reporter.report_error(e, {"user_id": "12345", "operation": "data_sync"})
+        print(f"Error reported with ID: {error_id}")
+    
+    print("Error summary:", reporter.get_error_summary())
+```

@@ -1,0 +1,835 @@
+# AI Agents and LangChain/LangGraph Development Guide
+
+## Understanding AI Agents
+
+### Core Concepts
+AI Agents are autonomous systems that can:
+- **Perceive** their environment through inputs
+- **Reason** about problems using LLMs
+- **Act** by using tools and making decisions
+- **Learn** from feedback and improve over time
+
+### Agent Types
+1. **Reactive Agents**: Respond to immediate inputs
+2. **Deliberative Agents**: Plan and reason about actions
+3. **Hybrid Agents**: Combine reactive and deliberative approaches
+4. **Multi-Agent Systems**: Multiple agents working together
+
+## LangChain Framework Fundamentals
+
+### Core Components
+```python
+from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
+from langchain.schema import BaseOutputParser
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
+from langchain.chains import LLMChain, ConversationChain
+from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
+from langchain.tools import Tool
+from langchain.agents import AgentType, initialize_agent
+
+# Basic LLM setup
+llm = ChatOpenAI(temperature=0.7, model_name="gpt-3.5-turbo")
+
+# Prompt Templates
+simple_prompt = PromptTemplate(
+    input_variables=["topic"],
+    template="Write a brief explanation about {topic}"
+)
+
+chat_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful AI assistant specialized in {domain}"),
+    ("human", "{question}")
+])
+
+# Output Parsers
+class JSONOutputParser(BaseOutputParser):
+    def parse(self, text: str) -> dict:
+        try:
+            import json
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON", "raw_text": text}
+
+    def get_format_instructions(self) -> str:
+        return "Please format your response as valid JSON."
+
+# Memory Systems
+conversation_memory = ConversationBufferMemory(
+    memory_key="chat_history",
+    return_messages=True
+)
+
+summary_memory = ConversationSummaryMemory(
+    llm=llm,
+    memory_key="chat_history",
+    return_messages=True
+)
+```
+
+### Advanced Chain Patterns
+```python
+from langchain.chains import SequentialChain, SimpleSequentialChain
+from langchain.chains.transform import TransformChain
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
+
+# Sequential Chain Example
+def extract_keywords(inputs: dict) -> dict:
+    """Extract keywords from text"""
+    text = inputs["text"]
+    # Simple keyword extraction (in practice, use NLP libraries)
+    words = text.split()
+    keywords = [word for word in words if len(word) > 5]
+    return {"keywords": keywords[:5]}
+
+def generate_summary(inputs: dict) -> dict:
+    """Generate summary based on keywords"""
+    keywords = inputs["keywords"]
+    summary = f"Key topics: {', '.join(keywords)}"
+    return {"summary": summary}
+
+# Create transform chains
+keyword_chain = TransformChain(
+    input_variables=["text"],
+    output_variables=["keywords"],
+    transform=extract_keywords
+)
+
+summary_chain = TransformChain(
+    input_variables=["keywords"],
+    output_variables=["summary"],
+    transform=generate_summary
+)
+
+# Combine chains
+analysis_chain = SequentialChain(
+    chains=[keyword_chain, summary_chain],
+    input_variables=["text"],
+    output_variables=["summary"],
+    verbose=True
+)
+
+# Custom Runnable Chain
+def process_and_enhance(text: str) -> str:
+    """Custom processing function"""
+    enhanced = f"Enhanced: {text.upper()}"
+    return enhanced
+
+custom_chain = (
+    RunnablePassthrough() 
+    | RunnableLambda(process_and_enhance)
+    | llm
+)
+```
+
+### Tool Creation and Management
+```python
+from langchain.tools import BaseTool, StructuredTool
+from langchain.pydantic_v1 import BaseModel, Field
+from typing import Optional, Type
+import requests
+import json
+
+# Simple function-based tool
+def calculate_math(expression: str) -> str:
+    """Calculate mathematical expressions safely"""
+    try:
+        # Only allow safe operations
+        allowed_chars = set('0123456789+-*/().= ')
+        if all(c in allowed_chars for c in expression):
+            result = eval(expression)
+            return f"Result: {result}"
+        else:
+            return "Error: Invalid characters in expression"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+math_tool = Tool(
+    name="Calculator",
+    description="Calculate mathematical expressions",
+    func=calculate_math
+)
+
+# Advanced tool with structured input
+class WebSearchInput(BaseModel):
+    query: str = Field(description="Search query")
+    num_results: int = Field(default=5, description="Number of results")
+
+class WebSearchTool(BaseTool):
+    name = "web_search"
+    description = "Search the web for information"
+    args_schema: Type[BaseModel] = WebSearchInput
+    
+    def _run(self, query: str, num_results: int = 5) -> str:
+        """Execute web search"""
+        # Simulate web search (replace with actual API)
+        results = [
+            f"Result {i+1}: Information about {query}"
+            for i in range(num_results)
+        ]
+        return "\n".join(results)
+    
+    async def _arun(self, query: str, num_results: int = 5) -> str:
+        """Async version of the tool"""
+        return self._run(query, num_results)
+
+# File operation tools
+class FileOperationInput(BaseModel):
+    operation: str = Field(description="Operation: read, write, append")
+    filename: str = Field(description="Name of the file")
+    content: Optional[str] = Field(description="Content for write/append operations")
+
+class FileOperationTool(BaseTool):
+    name = "file_operations"
+    description = "Perform file operations: read, write, append"
+    args_schema: Type[BaseModel] = FileOperationInput
+    
+    def _run(self, operation: str, filename: str, content: Optional[str] = None) -> str:
+        try:
+            if operation == "read":
+                with open(filename, 'r') as f:
+                    return f.read()
+            elif operation == "write":
+                with open(filename, 'w') as f:
+                    f.write(content or "")
+                return f"Successfully wrote to {filename}"
+            elif operation == "append":
+                with open(filename, 'a') as f:
+                    f.write(content or "")
+                return f"Successfully appended to {filename}"
+            else:
+                return f"Unknown operation: {operation}"
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+# API integration tool
+class APICallTool(BaseTool):
+    name = "api_call"
+    description = "Make HTTP API calls"
+    
+    def _run(self, url: str, method: str = "GET", data: dict = None) -> str:
+        try:
+            if method.upper() == "GET":
+                response = requests.get(url)
+            elif method.upper() == "POST":
+                response = requests.post(url, json=data)
+            else:
+                return f"Unsupported method: {method}"
+            
+            return f"Status: {response.status_code}, Response: {response.text[:500]}"
+        except Exception as e:
+            return f"API call failed: {str(e)}"
+```
+
+## LangGraph: Advanced Agent Workflows
+
+### State Management and Graph Construction
+```python
+from langgraph.graph import Graph, StateGraph
+from langgraph.prebuilt import ToolExecutor, ToolInvocation
+from typing import TypedDict, List, Union, Annotated
+from langchain.schema import AgentAction, AgentFinish
+import operator
+
+# Define agent state
+class AgentState(TypedDict):
+    input: str
+    chat_history: List[str]
+    agent_outcome: Union[AgentAction, AgentFinish, None]
+    intermediate_steps: Annotated[list, operator.add]
+    iterations: int
+    max_iterations: int
+
+# Advanced state with memory
+class AdvancedAgentState(TypedDict):
+    # Core state
+    input: str
+    output: str
+    
+    # Conversation management
+    chat_history: List[dict]
+    memory_summary: str
+    
+    # Task management
+    current_task: str
+    task_queue: List[str]
+    completed_tasks: List[str]
+    
+    # Tool usage tracking
+    tools_used: List[str]
+    tool_results: List[dict]
+    
+    # Error handling
+    errors: List[str]
+    retry_count: int
+    
+    # Agent introspection
+    thoughts: List[str]
+    confidence_scores: List[float]
+    next_actions: List[str]
+
+# Node functions for agent workflow
+def reasoning_node(state: AgentState) -> AgentState:
+    """Node for agent reasoning and planning"""
+    input_text = state["input"]
+    chat_history = state.get("chat_history", [])
+    
+    # Create reasoning prompt
+    reasoning_prompt = f"""
+    Given the input: {input_text}
+    Chat history: {chat_history[-3:] if chat_history else 'None'}
+    
+    Think step by step:
+    1. What is the user asking for?
+    2. What information do I need?
+    3. What tools might be helpful?
+    4. What's my plan of action?
+    
+    Provide your reasoning and next steps.
+    """
+    
+    # Get LLM response (simplified)
+    reasoning_result = f"Reasoning about: {input_text}"
+    
+    state["thoughts"] = state.get("thoughts", []) + [reasoning_result]
+    return state
+
+def tool_selection_node(state: AgentState) -> AgentState:
+    """Node for selecting appropriate tools"""
+    available_tools = ["calculator", "web_search", "file_operations", "api_call"]
+    
+    # Simple tool selection logic (in practice, use LLM)
+    selected_tools = []
+    input_lower = state["input"].lower()
+    
+    if any(word in input_lower for word in ["calculate", "math", "compute"]):
+        selected_tools.append("calculator")
+    if any(word in input_lower for word in ["search", "find", "lookup"]):
+        selected_tools.append("web_search")
+    if any(word in input_lower for word in ["file", "read", "write", "save"]):
+        selected_tools.append("file_operations")
+    
+    state["next_actions"] = selected_tools
+    return state
+
+def tool_execution_node(state: AgentState) -> AgentState:
+    """Node for executing selected tools"""
+    tools_to_use = state.get("next_actions", [])
+    results = []
+    
+    for tool_name in tools_to_use:
+        # Simulate tool execution
+        result = f"Executed {tool_name} with result: Success"
+        results.append({
+            "tool": tool_name,
+            "result": result,
+            "timestamp": "2024-01-01T00:00:00Z"
+        })
+    
+    state["tool_results"] = state.get("tool_results", []) + results
+    state["tools_used"] = state.get("tools_used", []) + tools_to_use
+    return state
+
+def synthesis_node(state: AgentState) -> AgentState:
+    """Node for synthesizing final response"""
+    tool_results = state.get("tool_results", [])
+    thoughts = state.get("thoughts", [])
+    
+    # Combine information to generate final response
+    synthesis = f"""
+    Based on my analysis and tool usage:
+    Reasoning: {thoughts[-1] if thoughts else 'No reasoning recorded'}
+    Tool Results: {len(tool_results)} tools executed
+    
+    Final Answer: Processing complete for: {state['input']}
+    """
+    
+    state["output"] = synthesis
+    return state
+
+# Conditional edge functions
+def should_continue(state: AgentState) -> str:
+    """Determine if agent should continue or finish"""
+    iterations = state.get("iterations", 0)
+    max_iterations = state.get("max_iterations", 5)
+    
+    if iterations >= max_iterations:
+        return "finish"
+    
+    if state.get("output"):
+        return "finish"
+    
+    return "continue"
+
+def route_after_reasoning(state: AgentState) -> str:
+    """Route after reasoning step"""
+    thoughts = state.get("thoughts", [])
+    if thoughts and "need tools" in thoughts[-1].lower():
+        return "tool_selection"
+    else:
+        return "synthesis"
+
+# Graph construction
+def create_agent_graph():
+    """Create a complete agent workflow graph"""
+    
+    # Initialize graph
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("reasoning", reasoning_node)
+    workflow.add_node("tool_selection", tool_selection_node)
+    workflow.add_node("tool_execution", tool_execution_node)
+    workflow.add_node("synthesis", synthesis_node)
+    
+    # Define entry point
+    workflow.set_entry_point("reasoning")
+    
+    # Add conditional edges
+    workflow.add_conditional_edges(
+        "reasoning",
+        route_after_reasoning,
+        {
+            "tool_selection": "tool_selection",
+            "synthesis": "synthesis"
+        }
+    )
+    
+    # Add regular edges
+    workflow.add_edge("tool_selection", "tool_execution")
+    workflow.add_edge("tool_execution", "synthesis")
+    
+    # Add conditional exit
+    workflow.add_conditional_edges(
+        "synthesis",
+        should_continue,
+        {
+            "continue": "reasoning",
+            "finish": "__end__"
+        }
+    )
+    
+    return workflow.compile()
+
+# Multi-agent coordination
+class MultiAgentCoordinator:
+    def __init__(self):
+        self.agents = {}
+        self.shared_state = {}
+        self.message_queue = []
+    
+    def register_agent(self, name: str, agent_graph):
+        """Register an agent with the coordinator"""
+        self.agents[name] = agent_graph
+    
+    def coordinate_agents(self, task: str) -> dict:
+        """Coordinate multiple agents to complete a task"""
+        # Simple round-robin coordination
+        results = {}
+        
+        for agent_name, agent in self.agents.items():
+            try:
+                # Execute agent with shared context
+                agent_input = {
+                    "input": task,
+                    "shared_context": self.shared_state,
+                    "iterations": 0,
+                    "max_iterations": 3
+                }
+                
+                result = agent.invoke(agent_input)
+                results[agent_name] = result
+                
+                # Update shared state
+                if "output" in result:
+                    self.shared_state[f"{agent_name}_output"] = result["output"]
+                
+            except Exception as e:
+                results[agent_name] = {"error": str(e)}
+        
+        return results
+
+# Usage example
+def create_specialized_agents():
+    """Create specialized agents for different tasks"""
+    
+    # Research Agent
+    research_state = StateGraph(AgentState)
+    research_state.add_node("search", lambda x: {**x, "output": f"Research results for: {x['input']}"})
+    research_state.set_entry_point("search")
+    research_state.add_edge("search", "__end__")
+    research_agent = research_state.compile()
+    
+    # Analysis Agent  
+    analysis_state = StateGraph(AgentState)
+    analysis_state.add_node("analyze", lambda x: {**x, "output": f"Analysis of: {x['input']}"})
+    analysis_state.set_entry_point("analyze")
+    analysis_state.add_edge("analyze", "__end__")
+    analysis_agent = analysis_state.compile()
+    
+    # Writing Agent
+    writing_state = StateGraph(AgentState)
+    writing_state.add_node("write", lambda x: {**x, "output": f"Written content for: {x['input']}"})
+    writing_state.set_entry_point("write")
+    writing_state.add_edge("write", "__end__")
+    writing_agent = writing_state.compile()
+    
+    return {
+        "researcher": research_agent,
+        "analyst": analysis_agent,
+        "writer": writing_agent
+    }
+```
+
+### Agent Memory and Learning
+```python
+from langchain.memory import VectorStoreRetrieverMemory
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.schema import Document
+
+class AdaptiveAgent:
+    """Agent that learns and adapts from interactions"""
+    
+    def __init__(self):
+        # Initialize memory systems
+        self.embeddings = OpenAIEmbeddings()
+        self.vector_store = FAISS.from_texts([""], self.embeddings)
+        
+        self.episodic_memory = VectorStoreRetrieverMemory(
+            vectorstore=self.vector_store,
+            memory_key="relevant_history",
+            input_key="input"
+        )
+        
+        self.performance_history = []
+        self.learning_rate = 0.1
+        self.confidence_threshold = 0.8
+    
+    def learn_from_interaction(self, interaction: dict):
+        """Learn from successful/failed interactions"""
+        # Store interaction in episodic memory
+        memory_text = f"Input: {interaction['input']}, Output: {interaction['output']}, Success: {interaction['success']}"
+        self.episodic_memory.save_context(
+            {"input": interaction["input"]},
+            {"output": interaction["output"]}
+        )
+        
+        # Update performance metrics
+        self.performance_history.append({
+            "timestamp": interaction.get("timestamp"),
+            "success": interaction["success"],
+            "confidence": interaction.get("confidence", 0.5),
+            "task_type": interaction.get("task_type", "general")
+        })
+    
+    def get_relevant_experience(self, current_input: str) -> List[str]:
+        """Retrieve relevant past experiences"""
+        relevant_memories = self.episodic_memory.load_memory_variables(
+            {"input": current_input}
+        )
+        return relevant_memories.get("relevant_history", "")
+    
+    def calculate_confidence(self, task_type: str) -> float:
+        """Calculate confidence based on past performance"""
+        relevant_history = [
+            h for h in self.performance_history
+            if h["task_type"] == task_type
+        ]
+        
+        if not relevant_history:
+            return 0.5  # Default confidence
+        
+        recent_history = relevant_history[-10:]  # Last 10 interactions
+        success_rate = sum(1 for h in recent_history if h["success"]) / len(recent_history)
+        
+        return min(success_rate + 0.1, 1.0)  # Slight optimism bias
+    
+    def should_ask_for_help(self, task_type: str) -> bool:
+        """Determine if agent should ask for human help"""
+        confidence = self.calculate_confidence(task_type)
+        return confidence < self.confidence_threshold
+
+# Agent self-improvement patterns
+class SelfImprovingAgent(AdaptiveAgent):
+    """Agent that actively improves its own performance"""
+    
+    def __init__(self):
+        super().__init__()
+        self.improvement_strategies = []
+        self.A_B_tests = {}
+    
+    def analyze_failures(self) -> List[str]:
+        """Analyze failure patterns to identify improvement opportunities"""
+        failures = [h for h in self.performance_history if not h["success"]]
+        
+        # Group failures by patterns
+        failure_patterns = {}
+        for failure in failures:
+            task_type = failure["task_type"]
+            if task_type not in failure_patterns:
+                failure_patterns[task_type] = 0
+            failure_patterns[task_type] += 1
+        
+        # Identify areas needing improvement
+        improvement_areas = [
+            task_type for task_type, count in failure_patterns.items()
+            if count > 3  # More than 3 failures
+        ]
+        
+        return improvement_areas
+    
+    def generate_improvement_strategy(self, problem_area: str) -> dict:
+        """Generate strategy to improve in specific area"""
+        strategies = {
+            "reasoning": "Add more systematic thinking steps",
+            "tool_usage": "Improve tool selection criteria",
+            "communication": "Enhance response clarity and structure",
+            "research": "Expand information gathering techniques"
+        }
+        
+        return {
+            "area": problem_area,
+            "strategy": strategies.get(problem_area, "General improvement needed"),
+            "implementation": f"Focus on {problem_area} in next 10 interactions"
+        }
+    
+    def run_A_B_test(self, test_name: str, approach_A, approach_B, inputs: list):
+        """Run A/B test to compare different approaches"""
+        results_A = []
+        results_B = []
+        
+        for i, input_data in enumerate(inputs):
+            if i % 2 == 0:
+                result = approach_A(input_data)
+                results_A.append(result)
+            else:
+                result = approach_B(input_data)
+                results_B.append(result)
+        
+        # Calculate performance metrics
+        score_A = sum(r.get("success", 0) for r in results_A) / len(results_A)
+        score_B = sum(r.get("success", 0) for r in results_B) / len(results_B)
+        
+        winner = "A" if score_A > score_B else "B"
+        
+        self.A_B_tests[test_name] = {
+            "winner": winner,
+            "score_A": score_A,
+            "score_B": score_B,
+            "confidence": abs(score_A - score_B)
+        }
+        
+        return self.A_B_tests[test_name]
+```
+
+### Production Agent Patterns
+```python
+import asyncio
+from typing import AsyncGenerator
+from contextlib import asynccontextmanager
+
+class ProductionAgent:
+    """Production-ready agent with monitoring and error handling"""
+    
+    def __init__(self, config: dict):
+        self.config = config
+        self.health_status = "healthy"
+        self.metrics = {
+            "requests_processed": 0,
+            "errors": 0,
+            "average_response_time": 0,
+            "uptime": 0
+        }
+        self.circuit_breaker_state = "closed"
+        self.rate_limiter = {}
+    
+    async def health_check(self) -> dict:
+        """Check agent health status"""
+        return {
+            "status": self.health_status,
+            "metrics": self.metrics,
+            "circuit_breaker": self.circuit_breaker_state,
+            "timestamp": time.time()
+        }
+    
+    @asynccontextmanager
+    async def request_context(self, request_id: str):
+        """Context manager for request processing"""
+        start_time = time.time()
+        try:
+            self.metrics["requests_processed"] += 1
+            yield
+        except Exception as e:
+            self.metrics["errors"] += 1
+            logging.error(f"Request {request_id} failed: {e}")
+            raise
+        finally:
+            duration = time.time() - start_time
+            self.metrics["average_response_time"] = (
+                self.metrics["average_response_time"] * 0.9 + duration * 0.1
+            )
+    
+    async def process_request_stream(self, input_stream: AsyncGenerator) -> AsyncGenerator:
+        """Process streaming requests"""
+        async for request in input_stream:
+            request_id = request.get("id", "unknown")
+            
+            async with self.request_context(request_id):
+                # Rate limiting
+                if self.should_rate_limit(request):
+                    yield {"error": "Rate limit exceeded", "request_id": request_id}
+                    continue
+                
+                # Circuit breaker check
+                if self.circuit_breaker_state == "open":
+                    yield {"error": "Service unavailable", "request_id": request_id}
+                    continue
+                
+                # Process request
+                try:
+                    result = await self.process_single_request(request)
+                    yield {"result": result, "request_id": request_id}
+                except Exception as e:
+                    yield {"error": str(e), "request_id": request_id}
+    
+    def should_rate_limit(self, request: dict) -> bool:
+        """Simple rate limiting logic"""
+        client_id = request.get("client_id", "anonymous")
+        current_time = time.time()
+        
+        if client_id not in self.rate_limiter:
+            self.rate_limiter[client_id] = []
+        
+        # Clean old requests (sliding window)
+        self.rate_limiter[client_id] = [
+            t for t in self.rate_limiter[client_id]
+            if current_time - t < 60  # 1 minute window
+        ]
+        
+        # Check rate limit (10 requests per minute)
+        if len(self.rate_limiter[client_id]) >= 10:
+            return True
+        
+        self.rate_limiter[client_id].append(current_time)
+        return False
+    
+    async def process_single_request(self, request: dict) -> dict:
+        """Process individual request"""
+        # Simulate processing
+        await asyncio.sleep(0.1)
+        return {"processed": request.get("input", ""), "timestamp": time.time()}
+
+# Agent deployment utilities
+class AgentDeployment:
+    """Utilities for deploying agents in production"""
+    
+    @staticmethod
+    def create_monitoring_dashboard(agent: ProductionAgent):
+        """Create monitoring dashboard for agent"""
+        return {
+            "health_endpoint": "/health",
+            "metrics_endpoint": "/metrics",
+            "logs_endpoint": "/logs",
+            "config": agent.config
+        }
+    
+    @staticmethod
+    def setup_logging_pipeline():
+        """Setup comprehensive logging for production"""
+        logging_config = {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "standard": {
+                    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+                },
+                "detailed": {
+                    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s [in %(pathname)s:%(lineno)d]"
+                }
+            },
+            "handlers": {
+                "console": {
+                    "level": "INFO",
+                    "class": "logging.StreamHandler",
+                    "formatter": "standard"
+                },
+                "file": {
+                    "level": "DEBUG",
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "filename": "agent.log",
+                    "maxBytes": 10485760,
+                    "backupCount": 5,
+                    "formatter": "detailed"
+                }
+            },
+            "loggers": {
+                "": {
+                    "handlers": ["console", "file"],
+                    "level": "DEBUG",
+                    "propagate": False
+                }
+            }
+        }
+        return logging_config
+
+# Example usage and testing
+async def test_agent_workflow():
+    """Test the complete agent workflow"""
+    
+    # Create and configure agent
+    agent_graph = create_agent_graph()
+    
+    # Test inputs
+    test_cases = [
+        {
+            "input": "Calculate 15 * 23 + 45",
+            "expected_tools": ["calculator"],
+            "iterations": 0,
+            "max_iterations": 3
+        },
+        {
+            "input": "Search for information about machine learning",
+            "expected_tools": ["web_search"],
+            "iterations": 0,
+            "max_iterations": 3
+        },
+        {
+            "input": "Read the contents of config.py and summarize",
+            "expected_tools": ["file_operations"],
+            "iterations": 0,
+            "max_iterations": 3
+        }
+    ]
+    
+    results = []
+    for test_case in test_cases:
+        try:
+            result = agent_graph.invoke(test_case)
+            results.append({
+                "input": test_case["input"],
+                "success": "output" in result,
+                "result": result
+            })
+        except Exception as e:
+            results.append({
+                "input": test_case["input"],
+                "success": False,
+                "error": str(e)
+            })
+    
+    return results
+
+# Uncomment to run tests
+# asyncio.run(test_agent_workflow())
+```
+
+This comprehensive AI Agents documentation covers:
+
+1. **Core Concepts**: Agent types, architecture, reasoning patterns
+2. **LangChain Framework**: Chains, tools, memory, prompts
+3. **LangGraph**: State management, workflow graphs, multi-agent coordination
+4. **Advanced Patterns**: Adaptive agents, self-improvement, A/B testing
+5. **Production Deployment**: Monitoring, error handling, rate limiting
+
+Each section includes practical examples that demonstrate real-world agent development patterns and best practices.

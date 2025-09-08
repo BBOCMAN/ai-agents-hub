@@ -1,0 +1,892 @@
+# Production-Ready Machine Learning with Python
+
+## Advanced Machine Learning Pipeline Architecture
+
+### Comprehensive Data Preprocessing and Feature Engineering
+```python
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from typing import Dict, List, Tuple, Any, Optional, Union
+from dataclasses import dataclass, field
+from pathlib import Path
+import logging
+import joblib
+import warnings
+from datetime import datetime
+
+# Scikit-learn imports
+from sklearn.model_selection import (
+    train_test_split, cross_val_score, GridSearchCV, RandomizedSearchCV,
+    StratifiedKFold, KFold, TimeSeriesSplit, validation_curve, learning_curve
+)
+from sklearn.preprocessing import (
+    StandardScaler, MinMaxScaler, RobustScaler, PowerTransformer,
+    LabelEncoder, OneHotEncoder, OrdinalEncoder, TargetEncoder,
+    PolynomialFeatures, KBinsDiscretizer
+)
+from sklearn.impute import SimpleImputer, KNNImputer, IterativeImputer
+from sklearn.feature_selection import (
+    SelectKBest, f_classif, f_regression, mutual_info_classif,
+    SelectFromModel, RFE, RFECV
+)
+from sklearn.decomposition import PCA, TruncatedSVD, NMF
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+# Model imports
+from sklearn.ensemble import (
+    RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier,
+    GradientBoostingRegressor, AdaBoostClassifier, ExtraTreesClassifier,
+    VotingClassifier, BaggingClassifier
+)
+from sklearn.linear_model import (
+    LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet,
+    SGDClassifier, PassiveAggressiveClassifier
+)
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.naive_bayes import GaussianNB, MultinomialNB
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+
+# Metrics imports
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report, roc_auc_score, roc_curve,
+    precision_recall_curve, mean_squared_error, mean_absolute_error,
+    r2_score, mean_absolute_percentage_error, log_loss
+)
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class MLConfig:
+    """Configuration for machine learning pipeline"""
+    random_state: int = 42
+    test_size: float = 0.2
+    cv_folds: int = 5
+    n_jobs: int = -1
+    verbose: bool = True
+    save_models: bool = True
+    model_dir: str = "models"
+    
+    # Preprocessing options
+    scale_features: bool = True
+    handle_outliers: bool = True
+    feature_selection: bool = True
+    max_features: Optional[int] = None
+
+class AdvancedDataPreprocessor:
+    """
+    Comprehensive data preprocessing pipeline with advanced techniques.
+    """
+    
+    def __init__(self, config: MLConfig):
+        self.config = config
+        self.preprocessor = None
+        self.feature_names_ = []
+        self.target_encoder = None
+        self.is_fitted = False
+        
+        # Store fitted transformers
+        self.fitted_transformers = {}
+        
+        logger.info("Initialized AdvancedDataPreprocessor")
+    
+    def analyze_data(self, df: pd.DataFrame, target_col: str) -> Dict[str, Any]:
+        """
+        Comprehensive data analysis before preprocessing.
+        
+        Args:
+            df: Input DataFrame
+            target_col: Target column name
+        
+        Returns:
+            Dictionary with data analysis results
+        """
+        analysis = {
+            'shape': df.shape,
+            'missing_values': df.isnull().sum().to_dict(),
+            'data_types': df.dtypes.to_dict(),
+            'duplicates': df.duplicated().sum(),
+            'memory_usage_mb': df.memory_usage(deep=True).sum() / 1024**2
+        }
+        
+        # Separate features and target
+        features = df.drop(columns=[target_col])
+        target = df[target_col]
+        
+        # Analyze numerical features
+        numerical_cols = features.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = features.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        analysis.update({
+            'numerical_features': len(numerical_cols),
+            'categorical_features': len(categorical_cols),
+            'target_type': 'classification' if target.dtype == 'object' or target.nunique() < 20 else 'regression',
+            'target_unique_values': target.nunique(),
+            'class_distribution': target.value_counts().to_dict() if target.nunique() < 20 else None
+        })
+        
+        # Analyze numerical features
+        if numerical_cols:
+            numerical_stats = {}
+            for col in numerical_cols:
+                col_data = features[col].dropna()
+                numerical_stats[col] = {
+                    'mean': col_data.mean(),
+                    'std': col_data.std(),
+                    'min': col_data.min(),
+                    'max': col_data.max(),
+                    'skewness': col_data.skew(),
+                    'kurtosis': col_data.kurtosis(),
+                    'outliers_iqr': self._count_outliers_iqr(col_data),
+                    'zero_values': (col_data == 0).sum()
+                }
+            analysis['numerical_stats'] = numerical_stats
+        
+        # Analyze categorical features
+        if categorical_cols:
+            categorical_stats = {}
+            for col in categorical_cols:
+                col_data = features[col].dropna()
+                categorical_stats[col] = {
+                    'unique_count': col_data.nunique(),
+                    'cardinality_ratio': col_data.nunique() / len(col_data),
+                    'most_frequent': col_data.mode().iloc[0] if len(col_data) > 0 else None,
+                    'top_categories': col_data.value_counts().head().to_dict()
+                }
+            analysis['categorical_stats'] = categorical_stats
+        
+        return analysis
+    
+    def _count_outliers_iqr(self, data: pd.Series) -> int:
+        """Count outliers using IQR method"""
+        Q1 = data.quantile(0.25)
+        Q3 = data.quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        return ((data < lower_bound) | (data > upper_bound)).sum()
+    
+    def create_preprocessing_pipeline(self, df: pd.DataFrame, target_col: str) -> ColumnTransformer:
+        """
+        Create comprehensive preprocessing pipeline based on data analysis.
+        
+        Args:
+            df: Input DataFrame
+            target_col: Target column name
+        
+        Returns:
+            Fitted ColumnTransformer
+        """
+        features = df.drop(columns=[target_col])
+        
+        # Identify feature types
+        numerical_cols = features.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = features.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # Create transformers for different feature types
+        transformers = []
+        
+        # Numerical features pipeline
+        if numerical_cols:
+            numerical_pipeline = Pipeline([
+                ('imputer', KNNImputer(n_neighbors=5)),
+                ('outlier_capper', RobustScaler()),  # Robust to outliers
+                ('scaler', StandardScaler() if self.config.scale_features else 'passthrough')
+            ])
+            transformers.append(('numerical', numerical_pipeline, numerical_cols))
+        
+        # Categorical features pipeline
+        if categorical_cols:
+            categorical_pipeline = Pipeline([
+                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                ('encoder', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'))
+            ])
+            transformers.append(('categorical', categorical_pipeline, categorical_cols))
+        
+        # Create column transformer
+        preprocessor = ColumnTransformer(
+            transformers=transformers,
+            remainder='passthrough',
+            n_jobs=self.config.n_jobs
+        )
+        
+        return preprocessor
+    
+    def fit_transform(self, df: pd.DataFrame, target_col: str) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Fit preprocessor and transform data.
+        
+        Args:
+            df: Input DataFrame
+            target_col: Target column name
+        
+        Returns:
+            Transformed features and target
+        """
+        logger.info("Starting data preprocessing...")
+        
+        # Separate features and target
+        X = df.drop(columns=[target_col])
+        y = df[target_col]
+        
+        # Create and fit preprocessor
+        self.preprocessor = self.create_preprocessing_pipeline(df, target_col)
+        X_transformed = self.preprocessor.fit_transform(X)
+        
+        # Handle target encoding for classification
+        if y.dtype == 'object' or (y.dtype in ['int64', 'float64'] and y.nunique() < 20):
+            self.target_encoder = LabelEncoder()
+            y_encoded = self.target_encoder.fit_transform(y)
+        else:
+            y_encoded = y.values
+        
+        # Store feature names
+        try:
+            self.feature_names_ = self.preprocessor.get_feature_names_out()
+        except:
+            # Fallback if get_feature_names_out is not available
+            self.feature_names_ = [f'feature_{i}' for i in range(X_transformed.shape[1])]
+        
+        self.is_fitted = True
+        logger.info(f"Preprocessing complete. Shape: {X_transformed.shape}")
+        
+        return X_transformed, y_encoded
+    
+    def transform(self, df: pd.DataFrame, target_col: str = None) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """Transform new data using fitted preprocessor"""
+        if not self.is_fitted:
+            raise ValueError("Preprocessor not fitted. Call fit_transform first.")
+        
+        if target_col:
+            X = df.drop(columns=[target_col])
+            y = df[target_col]
+            
+            X_transformed = self.preprocessor.transform(X)
+            
+            if self.target_encoder:
+                y_encoded = self.target_encoder.transform(y)
+            else:
+                y_encoded = y.values
+            
+            return X_transformed, y_encoded
+        else:
+            X_transformed = self.preprocessor.transform(df)
+            return X_transformed
+    
+    def get_feature_importance_analysis(self, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
+        """
+        Perform feature importance analysis using various methods.
+        
+        Args:
+            X: Transformed features
+            y: Target values
+        
+        Returns:
+            Dictionary with feature importance results
+        """
+        logger.info("Performing feature importance analysis...")
+        
+        importance_results = {}
+        
+        # Statistical tests
+        if len(np.unique(y)) < 20:  # Classification
+            f_scores, f_pvalues = f_classif(X, y)
+            mutual_info = mutual_info_classif(X, y, random_state=self.config.random_state)
+        else:  # Regression
+            f_scores, f_pvalues = f_regression(X, y)
+            mutual_info = mutual_info_classif(X, y, random_state=self.config.random_state)
+        
+        importance_results['f_scores'] = f_scores
+        importance_results['f_pvalues'] = f_pvalues
+        importance_results['mutual_info'] = mutual_info
+        
+        # Tree-based feature importance
+        if len(np.unique(y)) < 20:  # Classification
+            rf_model = RandomForestClassifier(n_estimators=100, random_state=self.config.random_state)
+        else:  # Regression
+            rf_model = RandomForestRegressor(n_estimators=100, random_state=self.config.random_state)
+        
+        rf_model.fit(X, y)
+        importance_results['tree_importance'] = rf_model.feature_importances_
+        
+        # Create feature importance DataFrame
+        feature_df = pd.DataFrame({
+            'feature': self.feature_names_,
+            'f_score': f_scores,
+            'f_pvalue': f_pvalues,
+            'mutual_info': mutual_info,
+            'tree_importance': rf_model.feature_importances_
+        })
+        
+        # Rank features
+        feature_df['f_score_rank'] = feature_df['f_score'].rank(ascending=False)
+        feature_df['mutual_info_rank'] = feature_df['mutual_info'].rank(ascending=False)
+        feature_df['tree_importance_rank'] = feature_df['tree_importance'].rank(ascending=False)
+        
+        # Average rank
+        feature_df['avg_rank'] = (
+            feature_df['f_score_rank'] + 
+            feature_df['mutual_info_rank'] + 
+            feature_df['tree_importance_rank']
+        ) / 3
+        
+        feature_df = feature_df.sort_values('avg_rank').reset_index(drop=True)
+        
+        importance_results['feature_ranking'] = feature_df
+        
+        return importance_results
+
+# Advanced Model Training and Evaluation
+class MLModelManager:
+    """
+    Comprehensive machine learning model management with training, evaluation, and deployment.
+    """
+    
+    def __init__(self, config: MLConfig):
+        self.config = config
+        self.models = {}
+        self.model_results = {}
+        self.best_model = None
+        self.best_score = -np.inf
+        
+        # Create model directory
+        Path(config.model_dir).mkdir(parents=True, exist_ok=True)
+        
+        logger.info("Initialized MLModelManager")
+    
+    def get_default_models(self, problem_type: str) -> Dict[str, Any]:
+        """
+        Get default models for classification or regression.
+        
+        Args:
+            problem_type: 'classification' or 'regression'
+        
+        Returns:
+            Dictionary of model name to model instance
+        """
+        if problem_type == 'classification':
+            return {
+                'RandomForest': RandomForestClassifier(
+                    n_estimators=100, random_state=self.config.random_state, n_jobs=self.config.n_jobs
+                ),
+                'GradientBoosting': GradientBoostingClassifier(
+                    n_estimators=100, random_state=self.config.random_state
+                ),
+                'LogisticRegression': LogisticRegression(
+                    random_state=self.config.random_state, max_iter=1000, n_jobs=self.config.n_jobs
+                ),
+                'SVM': SVC(
+                    random_state=self.config.random_state, probability=True
+                ),
+                'KNN': KNeighborsClassifier(
+                    n_jobs=self.config.n_jobs
+                ),
+                'NeuralNetwork': MLPClassifier(
+                    random_state=self.config.random_state, max_iter=1000
+                )
+            }
+        else:  # regression
+            return {
+                'RandomForest': RandomForestRegressor(
+                    n_estimators=100, random_state=self.config.random_state, n_jobs=self.config.n_jobs
+                ),
+                'GradientBoosting': GradientBoostingRegressor(
+                    n_estimators=100, random_state=self.config.random_state
+                ),
+                'LinearRegression': LinearRegression(
+                    n_jobs=self.config.n_jobs
+                ),
+                'Ridge': Ridge(
+                    random_state=self.config.random_state
+                ),
+                'Lasso': Lasso(
+                    random_state=self.config.random_state, max_iter=1000
+                ),
+                'SVR': SVR(),
+                'KNN': KNeighborsRegressor(
+                    n_jobs=self.config.n_jobs
+                ),
+                'NeuralNetwork': MLPRegressor(
+                    random_state=self.config.random_state, max_iter=1000
+                )
+            }
+    
+    def train_models(self, X_train: np.ndarray, y_train: np.ndarray, 
+                    problem_type: str, models: Dict[str, Any] = None) -> Dict[str, Dict[str, float]]:
+        """
+        Train multiple models and evaluate them using cross-validation.
+        
+        Args:
+            X_train: Training features
+            y_train: Training target
+            problem_type: 'classification' or 'regression'
+            models: Custom models dictionary
+        
+        Returns:
+            Dictionary with model results
+        """
+        logger.info(f"Training models for {problem_type}...")
+        
+        if models is None:
+            models = self.get_default_models(problem_type)
+        
+        # Choose appropriate cross-validation strategy
+        if problem_type == 'classification':
+            cv = StratifiedKFold(n_splits=self.config.cv_folds, shuffle=True, random_state=self.config.random_state)
+            scoring = 'accuracy'
+        else:
+            cv = KFold(n_splits=self.config.cv_folds, shuffle=True, random_state=self.config.random_state)
+            scoring = 'neg_mean_squared_error'
+        
+        results = {}
+        
+        for name, model in models.items():
+            try:
+                logger.info(f"Training {name}...")
+                
+                # Perform cross-validation
+                cv_scores = cross_val_score(
+                    model, X_train, y_train, cv=cv, scoring=scoring, n_jobs=self.config.n_jobs
+                )
+                
+                # Train on full training set
+                model.fit(X_train, y_train)
+                
+                # Store model and results
+                self.models[name] = model
+                
+                results[name] = {
+                    'cv_mean': cv_scores.mean(),
+                    'cv_std': cv_scores.std(),
+                    'cv_scores': cv_scores.tolist()
+                }
+                
+                # Track best model
+                if cv_scores.mean() > self.best_score:
+                    self.best_score = cv_scores.mean()
+                    self.best_model = model
+                    self.best_model_name = name
+                
+                logger.info(f"{name} CV Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+                
+            except Exception as e:
+                logger.error(f"Error training {name}: {e}")
+                results[name] = {'error': str(e)}
+        
+        self.model_results = results
+        logger.info(f"Best model: {self.best_model_name} with score: {self.best_score:.4f}")
+        
+        return results
+    
+    def evaluate_model(self, model, X_test: np.ndarray, y_test: np.ndarray, 
+                      problem_type: str, class_names: List[str] = None) -> Dict[str, Any]:
+        """
+        Comprehensive model evaluation.
+        
+        Args:
+            model: Trained model
+            X_test: Test features
+            y_test: Test target
+            problem_type: 'classification' or 'regression'
+            class_names: Names of classes for classification
+        
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        logger.info("Evaluating model...")
+        
+        # Make predictions
+        y_pred = model.predict(X_test)
+        
+        results = {
+            'predictions': y_pred.tolist()
+        }
+        
+        if problem_type == 'classification':
+            # Classification metrics
+            results.update({
+                'accuracy': accuracy_score(y_test, y_pred),
+                'precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
+                'recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
+                'f1_score': f1_score(y_test, y_pred, average='weighted', zero_division=0),
+                'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
+                'classification_report': classification_report(y_test, y_pred, target_names=class_names, output_dict=True)
+            })
+            
+            # ROC AUC for binary classification
+            if len(np.unique(y_test)) == 2 and hasattr(model, 'predict_proba'):
+                y_pred_proba = model.predict_proba(X_test)[:, 1]
+                results['roc_auc'] = roc_auc_score(y_test, y_pred_proba)
+                
+                # ROC curve data
+                fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba)
+                results['roc_curve'] = {
+                    'fpr': fpr.tolist(),
+                    'tpr': tpr.tolist(),
+                    'thresholds': thresholds.tolist()
+                }
+        
+        else:  # regression
+            # Regression metrics
+            results.update({
+                'mse': mean_squared_error(y_test, y_pred),
+                'rmse': np.sqrt(mean_squared_error(y_test, y_pred)),
+                'mae': mean_absolute_error(y_test, y_pred),
+                'r2_score': r2_score(y_test, y_pred)
+            })
+            
+            try:
+                results['mape'] = mean_absolute_percentage_error(y_test, y_pred)
+            except:
+                # Calculate MAPE manually
+                results['mape'] = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
+            
+            # Residuals analysis
+            residuals = y_test - y_pred
+            results['residuals_mean'] = np.mean(residuals)
+            results['residuals_std'] = np.std(residuals)
+        
+        return results
+    
+    def hyperparameter_tuning(self, model, param_grid: Dict[str, List], 
+                            X_train: np.ndarray, y_train: np.ndarray,
+                            problem_type: str, search_type: str = 'grid') -> Any:
+        """
+        Perform hyperparameter tuning using GridSearchCV or RandomizedSearchCV.
+        
+        Args:
+            model: Model to tune
+            param_grid: Parameter grid
+            X_train: Training features
+            y_train: Training target
+            problem_type: 'classification' or 'regression'
+            search_type: 'grid' or 'random'
+        
+        Returns:
+            Best estimator
+        """
+        logger.info(f"Performing {search_type} search hyperparameter tuning...")
+        
+        # Choose scoring metric
+        if problem_type == 'classification':
+            scoring = 'accuracy'
+            cv = StratifiedKFold(n_splits=self.config.cv_folds, shuffle=True, random_state=self.config.random_state)
+        else:
+            scoring = 'neg_mean_squared_error'
+            cv = KFold(n_splits=self.config.cv_folds, shuffle=True, random_state=self.config.random_state)
+        
+        # Choose search strategy
+        if search_type == 'grid':
+            search = GridSearchCV(
+                model, param_grid, cv=cv, scoring=scoring,
+                n_jobs=self.config.n_jobs, verbose=1 if self.config.verbose else 0
+            )
+        else:  # random
+            search = RandomizedSearchCV(
+                model, param_grid, cv=cv, scoring=scoring,
+                n_iter=50, n_jobs=self.config.n_jobs, 
+                random_state=self.config.random_state,
+                verbose=1 if self.config.verbose else 0
+            )
+        
+        # Fit search
+        search.fit(X_train, y_train)
+        
+        logger.info(f"Best parameters: {search.best_params_}")
+        logger.info(f"Best CV score: {search.best_score_:.4f}")
+        
+        return search.best_estimator_
+    
+    def save_model(self, model, model_name: str, metadata: Dict[str, Any] = None):
+        """Save model with metadata"""
+        if self.config.save_models:
+            model_path = Path(self.config.model_dir) / f"{model_name}.joblib"
+            metadata_path = Path(self.config.model_dir) / f"{model_name}_metadata.json"
+            
+            # Save model
+            joblib.dump(model, model_path)
+            
+            # Save metadata
+            if metadata:
+                import json
+                with open(metadata_path, 'w') as f:
+                    json.dump(metadata, f, indent=2, default=str)
+            
+            logger.info(f"Model saved: {model_path}")
+    
+    def load_model(self, model_name: str):
+        """Load saved model"""
+        model_path = Path(self.config.model_dir) / f"{model_name}.joblib"
+        
+        if model_path.exists():
+            model = joblib.load(model_path)
+            logger.info(f"Model loaded: {model_path}")
+            return model
+        else:
+            raise FileNotFoundError(f"Model not found: {model_path}")
+
+# Complete ML Pipeline
+class MLPipeline:
+    """
+    End-to-end machine learning pipeline with preprocessing, training, and evaluation.
+    """
+    
+    def __init__(self, config: MLConfig = None):
+        self.config = config or MLConfig()
+        self.preprocessor = AdvancedDataPreprocessor(self.config)
+        self.model_manager = MLModelManager(self.config)
+        self.pipeline_results = {}
+        
+        logger.info("Initialized MLPipeline")
+    
+    def run_complete_pipeline(self, df: pd.DataFrame, target_col: str, 
+                            custom_models: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Run complete ML pipeline from data to trained models.
+        
+        Args:
+            df: Input DataFrame
+            target_col: Target column name
+            custom_models: Custom models to use instead of defaults
+        
+        Returns:
+            Complete pipeline results
+        """
+        logger.info("Starting complete ML pipeline...")
+        
+        # Step 1: Data Analysis
+        logger.info("Step 1: Data Analysis")
+        data_analysis = self.preprocessor.analyze_data(df, target_col)
+        
+        # Determine problem type
+        problem_type = data_analysis['target_type']
+        logger.info(f"Problem type identified: {problem_type}")
+        
+        # Step 2: Data Preprocessing
+        logger.info("Step 2: Data Preprocessing")
+        X, y = self.preprocessor.fit_transform(df, target_col)
+        
+        # Step 3: Train-Test Split
+        logger.info("Step 3: Train-Test Split")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=self.config.test_size, 
+            random_state=self.config.random_state,
+            stratify=y if problem_type == 'classification' else None
+        )
+        
+        # Step 4: Feature Importance Analysis
+        logger.info("Step 4: Feature Importance Analysis")
+        feature_importance = self.preprocessor.get_feature_importance_analysis(X_train, y_train)
+        
+        # Step 5: Model Training
+        logger.info("Step 5: Model Training")
+        model_results = self.model_manager.train_models(
+            X_train, y_train, problem_type, custom_models
+        )
+        
+        # Step 6: Model Evaluation
+        logger.info("Step 6: Model Evaluation")
+        evaluation_results = {}
+        
+        for name, model in self.model_manager.models.items():
+            if hasattr(model, 'predict'):  # Skip models that failed to train
+                eval_result = self.model_manager.evaluate_model(
+                    model, X_test, y_test, problem_type
+                )
+                evaluation_results[name] = eval_result
+        
+        # Step 7: Save Best Model
+        if self.config.save_models and self.model_manager.best_model:
+            metadata = {
+                'problem_type': problem_type,
+                'feature_names': self.preprocessor.feature_names_.tolist(),
+                'target_encoder_classes': (
+                    self.preprocessor.target_encoder.classes_.tolist() 
+                    if self.preprocessor.target_encoder else None
+                ),
+                'data_analysis': data_analysis,
+                'best_cv_score': self.model_manager.best_score,
+                'training_date': datetime.now().isoformat()
+            }
+            
+            self.model_manager.save_model(
+                self.model_manager.best_model, 
+                f"best_{self.model_manager.best_model_name.lower()}", 
+                metadata
+            )
+        
+        # Compile results
+        self.pipeline_results = {
+            'data_analysis': data_analysis,
+            'feature_importance': feature_importance,
+            'model_training_results': model_results,
+            'model_evaluation_results': evaluation_results,
+            'best_model_name': self.model_manager.best_model_name,
+            'best_cv_score': self.model_manager.best_score,
+            'data_shapes': {
+                'original': df.shape,
+                'processed': X.shape,
+                'train': X_train.shape,
+                'test': X_test.shape
+            }
+        }
+        
+        logger.info("Complete ML pipeline finished successfully!")
+        return self.pipeline_results
+    
+    def predict(self, df: pd.DataFrame, model_name: str = None) -> np.ndarray:
+        """
+        Make predictions using trained model.
+        
+        Args:
+            df: Input DataFrame
+            model_name: Name of model to use (uses best model if None)
+        
+        Returns:
+            Predictions array
+        """
+        if model_name is None:
+            model = self.model_manager.best_model
+        else:
+            model = self.model_manager.models.get(model_name)
+        
+        if model is None:
+            raise ValueError("Model not found or not trained")
+        
+        # Preprocess data
+        X_processed = self.preprocessor.transform(df)
+        
+        # Make predictions
+        predictions = model.predict(X_processed)
+        
+        # Decode predictions if target was encoded
+        if self.preprocessor.target_encoder:
+            predictions = self.preprocessor.target_encoder.inverse_transform(predictions)
+        
+        return predictions
+
+# Demonstration and Examples
+def create_sample_datasets():
+    """Create sample datasets for demonstration"""
+    
+    # Classification dataset
+    from sklearn.datasets import make_classification
+    X_class, y_class = make_classification(
+        n_samples=1000, n_features=20, n_informative=10, n_redundant=5,
+        n_classes=3, random_state=42
+    )
+    
+    classification_df = pd.DataFrame(
+        X_class, columns=[f'feature_{i}' for i in range(20)]
+    )
+    classification_df['target'] = y_class
+    
+    # Add some categorical features
+    classification_df['category_1'] = np.random.choice(['A', 'B', 'C'], 1000)
+    classification_df['category_2'] = np.random.choice(['X', 'Y'], 1000)
+    
+    # Add some missing values
+    missing_indices = np.random.choice(1000, 100, replace=False)
+    classification_df.loc[missing_indices, 'feature_0'] = np.nan
+    
+    # Regression dataset
+    from sklearn.datasets import make_regression
+    X_reg, y_reg = make_regression(
+        n_samples=1000, n_features=15, n_informative=10, noise=0.1, random_state=42
+    )
+    
+    regression_df = pd.DataFrame(
+        X_reg, columns=[f'feature_{i}' for i in range(15)]
+    )
+    regression_df['target'] = y_reg
+    
+    # Add categorical features
+    regression_df['category_1'] = np.random.choice(['Type1', 'Type2', 'Type3'], 1000)
+    regression_df['category_2'] = np.random.choice(['Group1', 'Group2'], 1000)
+    
+    return classification_df, regression_df
+
+if __name__ == "__main__":
+    print("=== Advanced Machine Learning Pipeline Demo ===")
+    
+    # Create sample datasets
+    print("\n1. Creating sample datasets...")
+    classification_df, regression_df = create_sample_datasets()
+    
+    print(f"Classification dataset shape: {classification_df.shape}")
+    print(f"Regression dataset shape: {regression_df.shape}")
+    
+    # Configure pipeline
+    config = MLConfig(
+        random_state=42,
+        test_size=0.2,
+        cv_folds=3,  # Reduced for demo
+        verbose=True,
+        save_models=True
+    )
+    
+    # Test classification pipeline
+    print("\n2. Running Classification Pipeline...")
+    classification_pipeline = MLPipeline(config)
+    classification_results = classification_pipeline.run_complete_pipeline(
+        classification_df, 'target'
+    )
+    
+    print(f"Best classification model: {classification_results['best_model_name']}")
+    print(f"Best CV score: {classification_results['best_cv_score']:.4f}")
+    
+    # Test regression pipeline
+    print("\n3. Running Regression Pipeline...")
+    regression_pipeline = MLPipeline(config)
+    regression_results = regression_pipeline.run_complete_pipeline(
+        regression_df, 'target'
+    )
+    
+    print(f"Best regression model: {regression_results['best_model_name']}")
+    print(f"Best CV score: {regression_results['best_cv_score']:.4f}")
+    
+    # Demo predictions
+    print("\n4. Making Predictions...")
+    
+    # Make predictions on test data
+    test_classification = classification_df.head(10).drop(columns=['target'])
+    class_predictions = classification_pipeline.predict(test_classification)
+    print(f"Classification predictions sample: {class_predictions[:5]}")
+    
+    test_regression = regression_df.head(10).drop(columns=['target'])
+    reg_predictions = regression_pipeline.predict(test_regression)
+    print(f"Regression predictions sample: {reg_predictions[:5]}")
+    
+    # Feature importance analysis
+    print("\n5. Feature Importance Analysis...")
+    class_feature_ranking = classification_results['feature_importance']['feature_ranking']
+    print("Top 5 most important features (classification):")
+    print(class_feature_ranking[['feature', 'avg_rank', 'tree_importance']].head())
+    
+    reg_feature_ranking = regression_results['feature_importance']['feature_ranking']
+    print("\nTop 5 most important features (regression):")
+    print(reg_feature_ranking[['feature', 'avg_rank', 'tree_importance']].head())
+    
+    print("\n=== Advanced ML Pipeline Demo Completed Successfully! ===")
+    
+    print("\nPipeline Features Demonstrated:")
+    print("✓ Comprehensive data analysis and profiling")
+    print("✓ Advanced preprocessing with multiple transformers")
+    print("✓ Automatic feature type detection and handling")
+    print("✓ Multiple model training and comparison")
+    print("✓ Cross-validation and model selection")
+    print("✓ Feature importance analysis")
+    print("✓ Comprehensive model evaluation")
+    print("✓ Model persistence and metadata tracking")
+    print("✓ Production-ready prediction pipeline")
+```
