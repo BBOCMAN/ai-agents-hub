@@ -1,0 +1,1055 @@
+# LangGraph Framework Complete Guide
+
+## LangGraph Fundamentals and Architecture
+
+### Core Concepts
+LangGraph is a framework for building stateful, multi-step AI agents with cyclical workflows. Key advantages:
+- **State Management**: Persistent state across multiple steps
+- **Conditional Logic**: Dynamic routing based on agent decisions
+- **Human-in-the-Loop**: Built-in support for human intervention
+- **Parallel Execution**: Multiple agents or processes running simultaneously
+- **Checkpointing**: Save and restore agent state at any point
+
+### Essential Setup and Imports
+```python
+# Core LangGraph imports
+from langgraph.graph import Graph, StateGraph, END
+from langgraph.prebuilt import ToolExecutor, ToolInvocation
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
+
+# State and schema management
+from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated
+from typing_extensions import NotRequired
+import operator
+
+# LangChain integration
+from langchain.schema import AgentAction, AgentFinish, BaseMessage
+from langchain.tools import Tool, BaseTool
+from langchain.agents import AgentExecutor
+
+# Utilities
+import uuid
+import time
+import json
+import logging
+from datetime import datetime
+from dataclasses import dataclass, field
+from enum import Enum
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+```
+
+## State Definition and Management
+
+### Advanced State Schemas for Code Assistance
+```python
+# Base state for code generation workflow
+class CodeAssistantState(TypedDict):
+    # Core inputs and outputs
+    user_request: str
+    generated_code: str
+    final_output: str
+    
+    # Workflow management
+    current_step: str
+    iteration_count: int
+    max_iterations: int
+    
+    # Code analysis and validation
+    code_analysis: Dict[str, Any]
+    validation_results: Dict[str, Any]
+    test_results: Dict[str, Any]
+    error_messages: List[str]
+    
+    # Context and memory
+    conversation_history: Annotated[List[Dict[str, str]], operator.add]
+    relevant_docs: List[str]
+    similar_solutions: List[Dict[str, Any]]
+    
+    # Tool usage tracking
+    tools_used: Annotated[List[str], operator.add]
+    tool_results: Annotated[List[Dict[str, Any]], operator.add]
+    
+    # Quality and feedback
+    confidence_score: float
+    needs_human_review: bool
+    feedback: Optional[str]
+    
+    # Error handling and retries
+    retry_count: int
+    last_error: Optional[str]
+    fallback_strategies: List[str]
+
+# Specialized state for different code tasks
+class CodeReviewState(TypedDict):
+    # Code being reviewed
+    original_code: str
+    reviewed_code: str
+    
+    # Analysis results
+    security_issues: List[Dict[str, Any]]
+    performance_issues: List[Dict[str, Any]]
+    style_issues: List[Dict[str, Any]]
+    bug_reports: List[Dict[str, Any]]
+    
+    # Improvement suggestions
+    suggestions: List[Dict[str, str]]
+    priority_fixes: List[str]
+    
+    # Review metadata
+    review_score: float
+    reviewer_confidence: float
+    review_timestamp: str
+
+class TestGenerationState(TypedDict):
+    # Code to test
+    target_code: str
+    code_functions: List[str]
+    code_classes: List[str]
+    
+    # Test generation
+    unit_tests: str
+    integration_tests: str
+    test_coverage_analysis: Dict[str, Any]
+    
+    # Test execution
+    test_results: Dict[str, Any]
+    passed_tests: int
+    failed_tests: int
+    
+    # Test quality
+    test_quality_score: float
+    missing_test_cases: List[str]
+
+class DebuggerState(TypedDict):
+    # Code with issues
+    buggy_code: str
+    error_message: str
+    stack_trace: str
+    
+    # Analysis
+    error_analysis: str
+    potential_fixes: List[Dict[str, str]]
+    root_cause: str
+    
+    # Fix application
+    fixed_code: str
+    fix_explanation: str
+    fix_confidence: float
+    
+    # Validation
+    fix_tested: bool
+    fix_works: bool
+
+# Multi-agent coordination state
+class MultiAgentState(TypedDict):
+    # Task distribution
+    main_task: str
+    subtasks: List[Dict[str, Any]]
+    agent_assignments: Dict[str, str]
+    
+    # Agent coordination
+    agent_states: Dict[str, Dict[str, Any]]
+    inter_agent_messages: List[Dict[str, str]]
+    coordination_log: List[str]
+    
+    # Progress tracking
+    completed_subtasks: List[str]
+    pending_subtasks: List[str]
+    failed_subtasks: List[str]
+    
+    # Final integration
+    integrated_result: str
+    integration_successful: bool
+```
+
+## Node Implementation Patterns
+
+### Core Node Functions for Code Assistant
+```python
+class CodeAssistantNodes:
+    """Collection of node functions for code assistant workflow"""
+    
+    def __init__(self, llm, tools=None, memory=None):
+        self.llm = llm
+        self.tools = tools or []
+        self.memory = memory
+        self.tool_executor = ToolExecutor(self.tools) if self.tools else None
+    
+    def analyze_request_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Analyze user request and plan approach"""
+        logger.info("🔍 Analyzing user request...")
+        
+        request = state["user_request"]
+        
+        # Analyze request complexity and requirements
+        analysis_prompt = f"""
+        Analyze this programming request:
+        {request}
+        
+        Determine:
+        1. Task complexity (simple/medium/complex)
+        2. Required technologies/libraries
+        3. Estimated steps needed
+        4. Potential challenges
+        5. Success criteria
+        
+        Provide structured analysis:
+        """
+        
+        try:
+            analysis_result = self.llm.predict(analysis_prompt)
+            
+            # Parse analysis (simplified - in practice, use structured output)
+            complexity = "medium"  # Default
+            if "simple" in analysis_result.lower():
+                complexity = "simple"
+            elif "complex" in analysis_result.lower():
+                complexity = "complex"
+            
+            state["code_analysis"] = {
+                "complexity": complexity,
+                "analysis": analysis_result,
+                "timestamp": datetime.now().isoformat()
+            }
+            state["current_step"] = "planning"
+            state["confidence_score"] = 0.8
+            
+        except Exception as e:
+            logger.error(f"Error in request analysis: {e}")
+            state["error_messages"].append(f"Analysis failed: {e}")
+            state["last_error"] = str(e)
+        
+        return state
+    
+    def search_documentation_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Search relevant documentation and examples"""
+        logger.info("📚 Searching documentation...")
+        
+        request = state["user_request"]
+        
+        # Use document retrieval tool if available
+        if self.tool_executor and any(tool.name == "document_search" for tool in self.tools):
+            try:
+                search_result = self.tool_executor.invoke(
+                    ToolInvocation(tool="document_search", tool_input={"query": request})
+                )
+                state["relevant_docs"].extend(search_result.get("documents", []))
+            except Exception as e:
+                logger.error(f"Documentation search failed: {e}")
+        
+        # Memory-based search for similar solutions
+        if self.memory:
+            try:
+                similar = self.memory.search_similar_code(request, k=3)
+                state["similar_solutions"] = similar
+            except Exception as e:
+                logger.error(f"Memory search failed: {e}")
+        
+        state["current_step"] = "generation"
+        return state
+    
+    def generate_code_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Generate code based on request and context"""
+        logger.info("⚡ Generating code...")
+        
+        request = state["user_request"]
+        context = self._build_context(state)
+        
+        generation_prompt = f"""
+        Generate Python code for this request:
+        {request}
+        
+        Context and relevant information:
+        {context}
+        
+        Requirements:
+        1. Write clean, production-ready code
+        2. Include proper error handling
+        3. Add type hints and docstrings
+        4. Follow Python best practices
+        5. Include comments for complex logic
+        
+        Code:
+        ```python
+        """
+        
+        try:
+            generated_code = self.llm.predict(generation_prompt)
+            
+            # Clean up the generated code
+            if "```python" in generated_code:
+                code_start = generated_code.find("```python") + 9
+                code_end = generated_code.find("```", code_start)
+                if code_end != -1:
+                    generated_code = generated_code[code_start:code_end].strip()
+            
+            state["generated_code"] = generated_code
+            state["current_step"] = "validation"
+            state["tools_used"].append("code_generation")
+            
+        except Exception as e:
+            logger.error(f"Code generation failed: {e}")
+            state["error_messages"].append(f"Generation failed: {e}")
+            state["last_error"] = str(e)
+            state["retry_count"] += 1
+        
+        return state
+    
+    def validate_code_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Validate generated code for syntax and logic"""
+        logger.info("✅ Validating code...")
+        
+        code = state["generated_code"]
+        
+        validation_results = {
+            "syntax_valid": False,
+            "imports_valid": False,
+            "logic_issues": [],
+            "suggestions": []
+        }
+        
+        try:
+            # Syntax validation
+            compile(code, '<string>', 'exec')
+            validation_results["syntax_valid"] = True
+            
+            # Import validation (simplified)
+            import_lines = [line for line in code.split('\n') if line.strip().startswith(('import ', 'from '))]
+            validation_results["imports_valid"] = len(import_lines) > 0 or 'import' not in code
+            
+            # Use LLM for deeper validation
+            validation_prompt = f"""
+            Review this Python code for issues:
+            
+            ```python
+            {code}
+            ```
+            
+            Check for:
+            1. Logic errors
+            2. Potential runtime errors
+            3. Performance issues
+            4. Security concerns
+            5. Best practice violations
+            
+            Provide specific feedback:
+            """
+            
+            validation_feedback = self.llm.predict(validation_prompt)
+            validation_results["llm_feedback"] = validation_feedback
+            
+            # Extract issues (simplified parsing)
+            if "error" in validation_feedback.lower() or "issue" in validation_feedback.lower():
+                validation_results["logic_issues"].append(validation_feedback)
+            
+        except SyntaxError as e:
+            validation_results["syntax_error"] = str(e)
+            logger.warning(f"Syntax error in generated code: {e}")
+        except Exception as e:
+            validation_results["validation_error"] = str(e)
+            logger.error(f"Validation failed: {e}")
+        
+        state["validation_results"] = validation_results
+        state["current_step"] = "decision"
+        
+        return state
+    
+    def test_code_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Generate and run tests for the code"""
+        logger.info("🧪 Testing code...")
+        
+        code = state["generated_code"]
+        
+        # Generate tests
+        test_prompt = f"""
+        Generate comprehensive unit tests for this code:
+        
+        ```python
+        {code}
+        ```
+        
+        Create tests that:
+        1. Test normal functionality
+        2. Test edge cases
+        3. Test error conditions
+        4. Validate return types and values
+        
+        Test code:
+        ```python
+        """
+        
+        try:
+            test_code = self.llm.predict(test_prompt)
+            
+            # Clean up test code
+            if "```python" in test_code:
+                test_start = test_code.find("```python") + 9
+                test_end = test_code.find("```", test_start)
+                if test_end != -1:
+                    test_code = test_code[test_start:test_end].strip()
+            
+            # Execute tests (in practice, use proper sandboxing)
+            test_results = {
+                "tests_generated": True,
+                "test_code": test_code,
+                "execution_attempted": False
+            }
+            
+            state["test_results"] = test_results
+            state["tools_used"].append("test_generation")
+            
+        except Exception as e:
+            logger.error(f"Test generation failed: {e}")
+            state["test_results"] = {"error": str(e)}
+        
+        return state
+    
+    def improve_code_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Improve code based on validation feedback"""
+        logger.info("🔧 Improving code...")
+        
+        original_code = state["generated_code"]
+        validation_results = state["validation_results"]
+        
+        improvement_prompt = f"""
+        Improve this code based on the validation feedback:
+        
+        Original code:
+        ```python
+        {original_code}
+        ```
+        
+        Issues found:
+        {json.dumps(validation_results, indent=2)}
+        
+        Provide improved version that addresses all issues:
+        ```python
+        """
+        
+        try:
+            improved_code = self.llm.predict(improvement_prompt)
+            
+            # Clean up improved code
+            if "```python" in improved_code:
+                code_start = improved_code.find("```python") + 9
+                code_end = improved_code.find("```", code_start)
+                if code_end != -1:
+                    improved_code = improved_code[code_start:code_end].strip()
+            
+            state["generated_code"] = improved_code
+            state["iteration_count"] += 1
+            state["current_step"] = "validation"  # Re-validate
+            state["tools_used"].append("code_improvement")
+            
+        except Exception as e:
+            logger.error(f"Code improvement failed: {e}")
+            state["error_messages"].append(f"Improvement failed: {e}")
+        
+        return state
+    
+    def finalize_output_node(self, state: CodeAssistantState) -> CodeAssistantState:
+        """Finalize and format the output"""
+        logger.info("🎯 Finalizing output...")
+        
+        code = state["generated_code"]
+        request = state["user_request"]
+        
+        # Create comprehensive output
+        final_output = f"""
+# Solution for: {request}
+
+## Generated Code:
+```python
+{code}
+```
+
+## Analysis:
+{state.get('code_analysis', {}).get('analysis', 'No analysis available')}
+
+## Validation Results:
+- Syntax Valid: {state.get('validation_results', {}).get('syntax_valid', False)}
+- Imports Valid: {state.get('validation_results', {}).get('imports_valid', False)}
+
+## Tools Used:
+{', '.join(state.get('tools_used', []))}
+
+## Confidence Score: {state.get('confidence_score', 0.0):.2f}
+"""
+        
+        state["final_output"] = final_output
+        state["current_step"] = "completed"
+        
+        # Store in memory if available
+        if self.memory:
+            try:
+                self.memory.add_code_example(
+                    code=code,
+                    description=request,
+                    tags=["generated", "langraph"]
+                )
+            except Exception as e:
+                logger.error(f"Failed to store in memory: {e}")
+        
+        return state
+    
+    def _build_context(self, state: CodeAssistantState) -> str:
+        """Build context from state information"""
+        context_parts = []
+        
+        # Add relevant documentation
+        if state.get("relevant_docs"):
+            context_parts.append("Relevant Documentation:")
+            for doc in state["relevant_docs"][:3]:  # Limit to top 3
+                context_parts.append(f"- {doc}")
+        
+        # Add similar solutions
+        if state.get("similar_solutions"):
+            context_parts.append("\nSimilar Solutions:")
+            for solution in state["similar_solutions"][:2]:  # Limit to top 2
+                context_parts.append(f"- {solution.get('description', '')}")
+        
+        # Add analysis insights
+        if state.get("code_analysis"):
+            context_parts.append(f"\nComplexity: {state['code_analysis'].get('complexity', 'unknown')}")
+        
+        return "\n".join(context_parts)
+
+# Conditional edge functions
+class ConditionalEdges:
+    """Conditional logic for routing between nodes"""
+    
+    @staticmethod
+    def should_continue_or_finish(state: CodeAssistantState) -> str:
+        """Determine if workflow should continue or finish"""
+        
+        # Check iteration limits
+        if state["iteration_count"] >= state["max_iterations"]:
+            logger.info("Max iterations reached, finishing...")
+            return "finish"
+        
+        # Check for critical errors
+        if state.get("last_error") and state["retry_count"] > 2:
+            logger.warning("Too many retries, finishing with error...")
+            return "finish"
+        
+        # Check if we have valid code
+        validation = state.get("validation_results", {})
+        if validation.get("syntax_valid") and not validation.get("logic_issues"):
+            return "finish"
+        
+        # Continue if we can improve
+        if state["iteration_count"] < state["max_iterations"]:
+            return "continue"
+        
+        return "finish"
+    
+    @staticmethod
+    def route_after_validation(state: CodeAssistantState) -> str:
+        """Route after code validation"""
+        validation = state.get("validation_results", {})
+        
+        # If syntax is invalid, needs immediate fixing
+        if not validation.get("syntax_valid"):
+            return "improve"
+        
+        # If there are logic issues, improve
+        if validation.get("logic_issues"):
+            return "improve"
+        
+        # If validation is clean, test the code
+        if validation.get("syntax_valid") and not validation.get("logic_issues"):
+            return "test"
+        
+        # Default to improvement
+        return "improve"
+    
+    @staticmethod
+    def needs_human_review(state: CodeAssistantState) -> str:
+        """Determine if human review is needed"""
+        
+        # Check confidence score
+        if state.get("confidence_score", 0) < 0.6:
+            state["needs_human_review"] = True
+            return "human_review"
+        
+        # Check for critical errors
+        if len(state.get("error_messages", [])) > 3:
+            state["needs_human_review"] = True
+            return "human_review"
+        
+        # Check validation results
+        validation = state.get("validation_results", {})
+        if validation.get("syntax_error") or "security" in str(validation).lower():
+            state["needs_human_review"] = True
+            return "human_review"
+        
+        return "continue"
+    
+    @staticmethod
+    def retry_or_escalate(state: CodeAssistantState) -> str:
+        """Decide whether to retry or escalate"""
+        
+        retry_count = state.get("retry_count", 0)
+        
+        if retry_count < 2:
+            return "retry"
+        elif retry_count < 4:
+            return "fallback_strategy"
+        else:
+            return "escalate"
+
+# Human-in-the-loop node
+def human_review_node(state: CodeAssistantState) -> CodeAssistantState:
+    """Node for human review and feedback"""
+    logger.info("👤 Requesting human review...")
+    
+    # In a real implementation, this would present the code to a human reviewer
+    # For demo purposes, we'll simulate human feedback
+    
+    review_request = {
+        "code": state["generated_code"],
+        "issues": state.get("error_messages", []),
+        "confidence": state.get("confidence_score", 0),
+        "validation": state.get("validation_results", {})
+    }
+    
+    # Simulate human feedback (in practice, this would be actual human input)
+    human_feedback = {
+        "approved": True,
+        "feedback": "Code looks good, minor style improvements suggested",
+        "suggestions": ["Add more comments", "Consider edge cases"],
+        "confidence_adjustment": 0.1
+    }
+    
+    state["feedback"] = human_feedback["feedback"]
+    state["confidence_score"] = min(1.0, state.get("confidence_score", 0) + human_feedback["confidence_adjustment"])
+    state["needs_human_review"] = False
+    
+    if human_feedback["approved"]:
+        state["current_step"] = "finalize"
+    else:
+        state["current_step"] = "improve"
+    
+    return state
+```
+
+## Graph Construction and Workflow Patterns
+
+### Complete Code Assistant Graph
+```python
+def create_code_assistant_graph(llm, tools=None, memory=None, checkpointer=None):
+    """Create a complete code assistant workflow graph"""
+    
+    # Initialize nodes
+    nodes = CodeAssistantNodes(llm, tools, memory)
+    
+    # Create state graph
+    workflow = StateGraph(CodeAssistantState)
+    
+    # Add all nodes
+    workflow.add_node("analyze_request", nodes.analyze_request_node)
+    workflow.add_node("search_docs", nodes.search_documentation_node)
+    workflow.add_node("generate_code", nodes.generate_code_node)
+    workflow.add_node("validate_code", nodes.validate_code_node)
+    workflow.add_node("test_code", nodes.test_code_node)
+    workflow.add_node("improve_code", nodes.improve_code_node)
+    workflow.add_node("human_review", human_review_node)
+    workflow.add_node("finalize_output", nodes.finalize_output_node)
+    
+    # Set entry point
+    workflow.set_entry_point("analyze_request")
+    
+    # Add edges
+    workflow.add_edge("analyze_request", "search_docs")
+    workflow.add_edge("search_docs", "generate_code")
+    workflow.add_edge("generate_code", "validate_code")
+    
+    # Conditional routing after validation
+    workflow.add_conditional_edges(
+        "validate_code",
+        ConditionalEdges.route_after_validation,
+        {
+            "improve": "improve_code",
+            "test": "test_code"
+        }
+    )
+    
+    # After improvement, validate again
+    workflow.add_edge("improve_code", "validate_code")
+    
+    # After testing, check if human review is needed
+    workflow.add_conditional_edges(
+        "test_code",
+        ConditionalEdges.needs_human_review,
+        {
+            "human_review": "human_review",
+            "continue": "finalize_output"
+        }
+    )
+    
+    # After human review
+    workflow.add_conditional_edges(
+        "human_review",
+        lambda state: "finalize" if state.get("current_step") == "finalize" else "improve",
+        {
+            "finalize": "finalize_output",
+            "improve": "improve_code"
+        }
+    )
+    
+    # Final conditional check
+    workflow.add_conditional_edges(
+        "finalize_output",
+        ConditionalEdges.should_continue_or_finish,
+        {
+            "continue": "analyze_request",  # Restart if needed
+            "finish": END
+        }
+    )
+    
+    # Compile with checkpointing
+    if checkpointer:
+        return workflow.compile(checkpointer=checkpointer)
+    else:
+        return workflow.compile()
+
+# Multi-agent coordination graph
+def create_multi_agent_graph(agents_config: Dict[str, Any]):
+    """Create a multi-agent coordination workflow"""
+    
+    def coordinator_node(state: MultiAgentState) -> MultiAgentState:
+        """Coordinate multiple agents"""
+        main_task = state["main_task"]
+        
+        # Break down task into subtasks
+        subtasks = [
+            {"id": "analysis", "description": f"Analyze requirements for: {main_task}", "agent": "analyst"},
+            {"id": "implementation", "description": f"Implement solution for: {main_task}", "agent": "coder"},
+            {"id": "testing", "description": f"Test solution for: {main_task}", "agent": "tester"},
+            {"id": "documentation", "description": f"Document solution for: {main_task}", "agent": "documenter"}
+        ]
+        
+        state["subtasks"] = subtasks
+        state["pending_subtasks"] = [task["id"] for task in subtasks]
+        
+        return state
+    
+    def agent_executor_node(state: MultiAgentState) -> MultiAgentState:
+        """Execute agent tasks in parallel"""
+        
+        for subtask in state["subtasks"]:
+            if subtask["id"] in state["pending_subtasks"]:
+                agent_name = subtask["agent"]
+                
+                # Simulate agent execution
+                result = {
+                    "subtask_id": subtask["id"],
+                    "agent": agent_name,
+                    "result": f"Completed {subtask['description']}",
+                    "success": True,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # Update state
+                state["agent_states"][agent_name] = result
+                state["completed_subtasks"].append(subtask["id"])
+                state["pending_subtasks"].remove(subtask["id"])
+        
+        return state
+    
+    def integration_node(state: MultiAgentState) -> MultiAgentState:
+        """Integrate results from all agents"""
+        
+        results = []
+        for agent_name, agent_state in state["agent_states"].items():
+            if agent_state.get("success"):
+                results.append(f"{agent_name}: {agent_state['result']}")
+        
+        integrated_result = "\n".join(results)
+        state["integrated_result"] = integrated_result
+        state["integration_successful"] = len(results) == len(state["subtasks"])
+        
+        return state
+    
+    # Create workflow
+    workflow = StateGraph(MultiAgentState)
+    
+    workflow.add_node("coordinator", coordinator_node)
+    workflow.add_node("agent_executor", agent_executor_node)
+    workflow.add_node("integration", integration_node)
+    
+    workflow.set_entry_point("coordinator")
+    workflow.add_edge("coordinator", "agent_executor")
+    workflow.add_edge("agent_executor", "integration")
+    workflow.add_edge("integration", END)
+    
+    return workflow.compile()
+
+# Streaming and async patterns
+async def create_streaming_graph(llm):
+    """Create a graph that supports streaming responses"""
+    
+    async def streaming_generate_node(state: CodeAssistantState) -> CodeAssistantState:
+        """Generate code with streaming output"""
+        request = state["user_request"]
+        
+        prompt = f"Generate Python code for: {request}\n\nCode:\n```python\n"
+        
+        # Stream the response
+        generated_code = ""
+        async for chunk in llm.astream(prompt):
+            generated_code += chunk.content
+            # Yield intermediate state if needed
+            yield {"generated_code": generated_code, "streaming": True}
+        
+        # Clean up and finalize
+        if "```" in generated_code:
+            code_end = generated_code.find("```")
+            if code_end != -1:
+                generated_code = generated_code[:code_end]
+        
+        state["generated_code"] = generated_code.strip()
+        state["streaming"] = False
+        
+        return state
+    
+    # Create async workflow
+    workflow = StateGraph(CodeAssistantState)
+    workflow.add_node("streaming_generate", streaming_generate_node)
+    workflow.set_entry_point("streaming_generate")
+    workflow.add_edge("streaming_generate", END)
+    
+    return workflow.compile()
+```
+
+## Advanced Patterns and Use Cases
+
+### Checkpointing and State Persistence
+```python
+# Persistent checkpointing with SQLite
+def create_persistent_graph(llm, db_path="checkpoints.db"):
+    """Create graph with persistent checkpointing"""
+    
+    # Setup SQLite checkpointer
+    checkpointer = SqliteSaver.from_conn_string(f"sqlite:///{db_path}")
+    
+    # Create the graph
+    graph = create_code_assistant_graph(llm, checkpointer=checkpointer)
+    
+    return graph, checkpointer
+
+# Memory-based checkpointing for development
+def create_memory_graph(llm):
+    """Create graph with in-memory checkpointing"""
+    
+    checkpointer = MemorySaver()
+    graph = create_code_assistant_graph(llm, checkpointer=checkpointer)
+    
+    return graph, checkpointer
+
+# Usage with checkpointing
+async def run_with_checkpoints():
+    """Example of running workflow with checkpoints"""
+    
+    graph, checkpointer = create_memory_graph(llm)
+    
+    # Create unique thread ID for this conversation
+    thread_id = str(uuid.uuid4())
+    
+    # Initial state
+    initial_state = {
+        "user_request": "Create a function to calculate fibonacci numbers",
+        "generated_code": "",
+        "final_output": "",
+        "current_step": "start",
+        "iteration_count": 0,
+        "max_iterations": 3,
+        "code_analysis": {},
+        "validation_results": {},
+        "test_results": {},
+        "error_messages": [],
+        "conversation_history": [],
+        "relevant_docs": [],
+        "similar_solutions": [],
+        "tools_used": [],
+        "tool_results": [],
+        "confidence_score": 0.5,
+        "needs_human_review": False,
+        "feedback": None,
+        "retry_count": 0,
+        "last_error": None,
+        "fallback_strategies": []
+    }
+    
+    # Run workflow with checkpoints
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    async for state in graph.astream(initial_state, config=config):
+        print(f"Current state: {state}")
+        
+        # Can interrupt and resume at any point
+        if state.get("needs_human_review"):
+            print("Pausing for human review...")
+            # Could save state and resume later
+            break
+    
+    # Resume from checkpoint
+    # result = await graph.ainvoke(None, config=config)
+    # return result
+
+# Parallel execution pattern
+def create_parallel_analysis_graph(llm):
+    """Create graph with parallel analysis nodes"""
+    
+    def parallel_analysis_node(state: CodeAssistantState) -> CodeAssistantState:
+        """Run multiple analyses in parallel"""
+        
+        code = state["generated_code"]
+        
+        # Define parallel analysis tasks
+        analyses = {
+            "security": f"Analyze this code for security issues:\n{code}",
+            "performance": f"Analyze this code for performance issues:\n{code}",
+            "style": f"Analyze this code for style issues:\n{code}",
+            "maintainability": f"Analyze this code for maintainability:\n{code}"
+        }
+        
+        # In practice, these would run in parallel
+        results = {}
+        for analysis_type, prompt in analyses.items():
+            try:
+                result = llm.predict(prompt)
+                results[analysis_type] = result
+            except Exception as e:
+                results[analysis_type] = f"Analysis failed: {e}"
+        
+        state["code_analysis"]["parallel_results"] = results
+        return state
+    
+    workflow = StateGraph(CodeAssistantState)
+    workflow.add_node("parallel_analysis", parallel_analysis_node)
+    workflow.set_entry_point("parallel_analysis")
+    workflow.add_edge("parallel_analysis", END)
+    
+    return workflow.compile()
+
+# Error recovery and fallback patterns
+class ErrorRecoveryGraph:
+    """Graph with comprehensive error recovery"""
+    
+    def __init__(self, llm):
+        self.llm = llm
+        self.fallback_strategies = [
+            "simplify_request",
+            "use_template",
+            "request_clarification",
+            "provide_documentation"
+        ]
+    
+    def create_resilient_graph(self):
+        """Create graph with error recovery mechanisms"""
+        
+        def error_recovery_node(state: CodeAssistantState) -> CodeAssistantState:
+            """Handle errors and implement recovery strategies"""
+            
+            error = state.get("last_error")
+            retry_count = state.get("retry_count", 0)
+            
+            if retry_count < len(self.fallback_strategies):
+                strategy = self.fallback_strategies[retry_count]
+                
+                if strategy == "simplify_request":
+                    # Simplify the original request
+                    simplified_prompt = f"""
+                    Simplify this programming request to its core functionality:
+                    {state['user_request']}
+                    
+                    Provide a simpler version that addresses the main requirement:
+                    """
+                    simplified_request = self.llm.predict(simplified_prompt)
+                    state["user_request"] = simplified_request
+                
+                elif strategy == "use_template":
+                    # Use a code template
+                    template_code = f"""
+# Template solution for: {state['user_request']}
+
+def main_function():
+    \"\"\"
+    Main function to implement the requested functionality.
+    TODO: Implement the specific logic based on requirements.
+    \"\"\"
+    try:
+        # TODO: Add implementation here
+        result = None
+        return result
+    except Exception as e:
+        print(f"Error: {{e}}")
+        return None
+
+if __name__ == "__main__":
+    result = main_function()
+    print(f"Result: {{result}}")
+"""
+                    state["generated_code"] = template_code
+                
+                elif strategy == "request_clarification":
+                    # Request more details
+                    clarification = f"""
+Based on your request: "{state['user_request']}"
+
+I need more information to provide a better solution. Could you please clarify:
+1. What specific inputs should the code handle?
+2. What should be the expected output format?
+3. Are there any specific constraints or requirements?
+4. What is the intended use case?
+
+Please provide more details so I can generate better code.
+"""
+                    state["final_output"] = clarification
+                    state["current_step"] = "completed"
+                
+                elif strategy == "provide_documentation":
+                    # Provide relevant documentation
+                    documentation = f"""
+I encountered difficulties generating code for: "{state['user_request']}"
+
+Here are some relevant resources and examples that might help:
+
+1. Python Official Documentation: https://docs.python.org/
+2. Common patterns for similar tasks
+3. Best practices and examples
+
+You can use these resources to implement the solution manually or refine your request.
+"""
+                    state["final_output"] = documentation
+                    state["current_step"] = "completed"
+            
+            else:
+                # All strategies exhausted
+                state["final_output"] = f"Unable to generate code after {retry_count} attempts. Please refine your request or seek human assistance."
+                state["current_step"] = "completed"
+            
+            return state
+        
+        workflow = StateGraph(CodeAssistantState)
+        workflow.add_node("error_recovery", error_recovery_node)
+        workflow.set_entry_point("error_recovery")
+        workflow.add_edge("error_recovery", END)
+        
+        return workflow.compile()
+```
+
+This comprehensive LangGraph documentation provides:
+
+1. **State Management**: Advanced state schemas for different code tasks
+2. **Node Patterns**: Complete node implementations for code assistance
+3. **Conditional Logic**: Smart routing and decision making
+4. **Graph Construction**: Full workflow patterns and multi-agent coordination
+5. **Advanced Features**: Checkpointing, streaming, parallel execution, error recovery
+
+All examples are production-ready with proper error handling, logging, and state management, specifically designed for AI agent code correction and generation workflows.

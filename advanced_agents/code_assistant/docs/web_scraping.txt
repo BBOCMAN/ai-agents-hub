@@ -1,0 +1,901 @@
+# Production-Ready Web Scraping and API Integration
+
+## Advanced HTTP Requests and Session Management
+
+### Professional Request Handling with Error Recovery
+```python
+import requests
+import time
+import logging
+import json
+import csv
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass, field
+from urllib.parse import urljoin, urlparse, parse_qs
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib3.exceptions import InsecureRequestWarning
+import warnings
+from contextlib import contextmanager
+import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+import aiohttp
+import hashlib
+from pathlib import Path
+
+# Suppress SSL warnings for development
+warnings.simplefilter('ignore', InsecureRequestWarning)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ScrapingConfig:
+    """Configuration for web scraping operations"""
+    base_url: str
+    headers: Dict[str, str] = field(default_factory=lambda: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    })
+    max_retries: int = 3
+    backoff_factor: float = 1.0
+    timeout: int = 30
+    rate_limit_delay: float = 1.0
+    verify_ssl: bool = True
+    proxy: Optional[Dict[str, str]] = None
+    cookies: Optional[Dict[str, str]] = None
+    auth: Optional[tuple] = None
+
+class AdvancedWebScraper:
+    """
+    Production-ready web scraper with comprehensive error handling,
+    rate limiting, caching, and async support.
+    """
+    
+    def __init__(self, config: ScrapingConfig):
+        self.config = config
+        self.session = self._create_session()
+        self.cache = {}
+        self.request_count = 0
+        self.last_request_time = 0
+        
+        # Setup logging
+        self.logger = logging.getLogger(f"{self.__class__.__name__}")
+        
+        # Rate limiting
+        self.rate_limiter = self._create_rate_limiter()
+    
+    def _create_session(self) -> requests.Session:
+        """Create a requests session with retry strategy and configuration"""
+        session = requests.Session()
+        
+        # Retry strategy
+        retry_strategy = Retry(
+            total=self.config.max_retries,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],
+            backoff_factor=self.config.backoff_factor,
+            raise_on_status=False
+        )
+        
+        # Mount adapter
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=20, pool_maxsize=20)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # Set headers
+        session.headers.update(self.config.headers)
+        
+        # Set proxy if provided
+        if self.config.proxy:
+            session.proxies.update(self.config.proxy)
+        
+        # Set cookies if provided
+        if self.config.cookies:
+            session.cookies.update(self.config.cookies)
+        
+        # Set authentication if provided
+        if self.config.auth:
+            session.auth = self.config.auth
+        
+        return session
+    
+    def _create_rate_limiter(self):
+        """Create rate limiter to avoid overwhelming servers"""
+        def rate_limit():
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            
+            if time_since_last < self.config.rate_limit_delay:
+                sleep_time = self.config.rate_limit_delay - time_since_last
+                # Add jitter to avoid thundering herd
+                jitter = random.uniform(0.1, 0.3)
+                time.sleep(sleep_time + jitter)
+            
+            self.last_request_time = time.time()
+            self.request_count += 1
+        
+        return rate_limit
+    
+    def _get_cache_key(self, url: str, params: Dict = None) -> str:
+        """Generate cache key for request"""
+        cache_string = f"{url}_{params or {}}"
+        return hashlib.md5(cache_string.encode()).hexdigest()
+    
+    def make_request(self, url: str, method: str = 'GET', 
+                    params: Dict = None, data: Dict = None, 
+                    json_data: Dict = None, use_cache: bool = True,
+                    custom_headers: Dict = None) -> Optional[requests.Response]:
+        """
+        Make HTTP request with comprehensive error handling and caching.
+        
+        Args:
+            url: Target URL
+            method: HTTP method
+            params: URL parameters
+            data: Form data
+            json_data: JSON data
+            use_cache: Whether to use caching
+            custom_headers: Additional headers for this request
+        
+        Returns:
+            Response object or None if failed
+        """
+        
+        # Check cache first
+        if use_cache and method.upper() == 'GET':
+            cache_key = self._get_cache_key(url, params)
+            if cache_key in self.cache:
+                self.logger.info(f"Cache hit for {url}")
+                return self.cache[cache_key]
+        
+        # Apply rate limiting
+        self.rate_limiter()
+        
+        # Prepare request arguments
+        request_kwargs = {
+            'timeout': self.config.timeout,
+            'verify': self.config.verify_ssl,
+            'params': params,
+            'allow_redirects': True
+        }
+        
+        if data:
+            request_kwargs['data'] = data
+        if json_data:
+            request_kwargs['json'] = json_data
+        
+        # Add custom headers
+        if custom_headers:
+            headers = self.config.headers.copy()
+            headers.update(custom_headers)
+            request_kwargs['headers'] = headers
+        
+        try:
+            self.logger.info(f"Making {method} request to {url}")
+            
+            response = self.session.request(method, url, **request_kwargs)
+            
+            # Log response details
+            self.logger.info(f"Response: {response.status_code} for {url}")
+            
+            # Handle different status codes
+            if response.status_code == 200:
+                # Cache successful GET requests
+                if use_cache and method.upper() == 'GET':
+                    cache_key = self._get_cache_key(url, params)
+                    self.cache[cache_key] = response
+                
+                return response
+            
+            elif response.status_code == 429:
+                # Rate limited - wait longer
+                retry_after = int(response.headers.get('Retry-After', 60))
+                self.logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                time.sleep(retry_after)
+                return self.make_request(url, method, params, data, json_data, use_cache, custom_headers)
+            
+            elif response.status_code in [401, 403]:
+                self.logger.error(f"Authentication/Authorization error: {response.status_code}")
+                return None
+            
+            elif response.status_code == 404:
+                self.logger.warning(f"Resource not found: {url}")
+                return None
+            
+            else:
+                self.logger.warning(f"Unexpected status code {response.status_code} for {url}")
+                return response
+                
+        except requests.exceptions.Timeout:
+            self.logger.error(f"Timeout error for {url}")
+            return None
+        
+        except requests.exceptions.ConnectionError:
+            self.logger.error(f"Connection error for {url}")
+            return None
+        
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Request exception for {url}: {e}")
+            return None
+        
+        except Exception as e:
+            self.logger.error(f"Unexpected error for {url}: {e}")
+            return None
+    
+    def batch_requests(self, urls: List[str], max_workers: int = 5) -> List[Optional[requests.Response]]:
+        """
+        Make multiple requests concurrently using ThreadPoolExecutor.
+        
+        Args:
+            urls: List of URLs to request
+            max_workers: Maximum number of concurrent workers
+        
+        Returns:
+            List of response objects
+        """
+        results = [None] * len(urls)
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all requests
+            future_to_index = {
+                executor.submit(self.make_request, url): i 
+                for i, url in enumerate(urls)
+            }
+            
+            # Collect results
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    results[index] = future.result()
+                except Exception as e:
+                    self.logger.error(f"Error processing {urls[index]}: {e}")
+                    results[index] = None
+        
+        return results
+    
+    def get_json(self, url: str, **kwargs) -> Optional[Dict]:
+        """Get JSON data from URL"""
+        response = self.make_request(url, **kwargs)
+        if response and response.status_code == 200:
+            try:
+                return response.json()
+            except json.JSONDecodeError as e:
+                self.logger.error(f"JSON decode error for {url}: {e}")
+                return None
+        return None
+    
+    def download_file(self, url: str, filepath: Union[str, Path], 
+                     chunk_size: int = 8192) -> bool:
+        """
+        Download file from URL with progress tracking.
+        
+        Args:
+            url: File URL
+            filepath: Local filepath to save
+            chunk_size: Download chunk size
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            response = self.make_request(url, use_cache=False)
+            if not response or response.status_code != 200:
+                return False
+            
+            filepath = Path(filepath)
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        if total_size > 0:
+                            percent = (downloaded / total_size) * 100
+                            self.logger.info(f"Downloaded {percent:.1f}% of {filepath.name}")
+            
+            self.logger.info(f"Successfully downloaded {filepath}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error downloading {url}: {e}")
+            return False
+    
+    def clear_cache(self):
+        """Clear the request cache"""
+        self.cache.clear()
+        self.logger.info("Cache cleared")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get scraping statistics"""
+        return {
+            'total_requests': self.request_count,
+            'cache_size': len(self.cache),
+            'last_request_time': self.last_request_time,
+            'session_cookies': dict(self.session.cookies)
+        }
+
+# Advanced BeautifulSoup HTML Parsing
+class AdvancedHTMLParser:
+    """
+    Advanced HTML parsing with comprehensive data extraction capabilities.
+    """
+    
+    def __init__(self, parser: str = 'html.parser'):
+        self.parser = parser
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    def parse_html(self, html_content: str, encoding: str = 'utf-8') -> 'BeautifulSoup':
+        """Parse HTML content with error handling"""
+        from bs4 import BeautifulSoup
+        
+        try:
+            if isinstance(html_content, bytes):
+                html_content = html_content.decode(encoding, errors='replace')
+            
+            soup = BeautifulSoup(html_content, self.parser)
+            return soup
+            
+        except Exception as e:
+            self.logger.error(f"HTML parsing error: {e}")
+            return None
+    
+    def extract_links(self, soup: 'BeautifulSoup', base_url: str = None, 
+                     filter_external: bool = False) -> List[Dict[str, str]]:
+        """
+        Extract all links from HTML with optional filtering.
+        
+        Args:
+            soup: BeautifulSoup object
+            base_url: Base URL for relative links
+            filter_external: Whether to filter out external links
+        
+        Returns:
+            List of link dictionaries
+        """
+        links = []
+        
+        for link_tag in soup.find_all('a', href=True):
+            href = link_tag['href']
+            text = link_tag.get_text(strip=True)
+            title = link_tag.get('title', '')
+            
+            # Handle relative URLs
+            if base_url and not href.startswith(('http://', 'https://', '//')):
+                href = urljoin(base_url, href)
+            
+            # Filter external links if requested
+            if filter_external and base_url:
+                base_domain = urlparse(base_url).netloc
+                link_domain = urlparse(href).netloc
+                if link_domain and link_domain != base_domain:
+                    continue
+            
+            links.append({
+                'url': href,
+                'text': text,
+                'title': title,
+                'tag': str(link_tag)
+            })
+        
+        return links
+    
+    def extract_images(self, soup: 'BeautifulSoup', base_url: str = None) -> List[Dict[str, str]]:
+        """Extract all images from HTML"""
+        images = []
+        
+        for img_tag in soup.find_all('img'):
+            src = img_tag.get('src', '')
+            alt = img_tag.get('alt', '')
+            title = img_tag.get('title', '')
+            width = img_tag.get('width', '')
+            height = img_tag.get('height', '')
+            
+            # Handle relative URLs
+            if base_url and src and not src.startswith(('http://', 'https://', '//', 'data:')):
+                src = urljoin(base_url, src)
+            
+            images.append({
+                'src': src,
+                'alt': alt,
+                'title': title,
+                'width': width,
+                'height': height,
+                'tag': str(img_tag)
+            })
+        
+        return images
+    
+    def extract_tables(self, soup: 'BeautifulSoup') -> List[List[List[str]]]:
+        """Extract all tables as list of rows"""
+        tables = []
+        
+        for table in soup.find_all('table'):
+            table_data = []
+            
+            # Extract headers if present
+            headers = []
+            header_row = table.find('tr')
+            if header_row:
+                for th in header_row.find_all(['th', 'td']):
+                    headers.append(th.get_text(strip=True))
+                if headers:
+                    table_data.append(headers)
+            
+            # Extract data rows
+            for row in table.find_all('tr')[1:]:  # Skip header row
+                row_data = []
+                for cell in row.find_all(['td', 'th']):
+                    row_data.append(cell.get_text(strip=True))
+                if row_data:
+                    table_data.append(row_data)
+            
+            if table_data:
+                tables.append(table_data)
+        
+        return tables
+    
+    def extract_forms(self, soup: 'BeautifulSoup', base_url: str = None) -> List[Dict[str, Any]]:
+        """Extract all forms with their fields"""
+        forms = []
+        
+        for form in soup.find_all('form'):
+            action = form.get('action', '')
+            method = form.get('method', 'GET').upper()
+            enctype = form.get('enctype', 'application/x-www-form-urlencoded')
+            
+            # Handle relative action URLs
+            if base_url and action and not action.startswith(('http://', 'https://')):
+                action = urljoin(base_url, action)
+            
+            # Extract form fields
+            fields = []
+            for input_tag in form.find_all(['input', 'select', 'textarea']):
+                field_info = {
+                    'tag': input_tag.name,
+                    'name': input_tag.get('name', ''),
+                    'type': input_tag.get('type', 'text'),
+                    'value': input_tag.get('value', ''),
+                    'required': input_tag.has_attr('required'),
+                    'placeholder': input_tag.get('placeholder', '')
+                }
+                
+                # Handle select options
+                if input_tag.name == 'select':
+                    options = []
+                    for option in input_tag.find_all('option'):
+                        options.append({
+                            'value': option.get('value', ''),
+                            'text': option.get_text(strip=True),
+                            'selected': option.has_attr('selected')
+                        })
+                    field_info['options'] = options
+                
+                fields.append(field_info)
+            
+            forms.append({
+                'action': action,
+                'method': method,
+                'enctype': enctype,
+                'fields': fields
+            })
+        
+        return forms
+    
+    def extract_structured_data(self, soup: 'BeautifulSoup') -> Dict[str, List[Dict]]:
+        """Extract structured data (JSON-LD, microdata, etc.)"""
+        structured_data = {
+            'json_ld': [],
+            'microdata': [],
+            'meta_tags': []
+        }
+        
+        # Extract JSON-LD
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string)
+                structured_data['json_ld'].append(data)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        
+        # Extract microdata
+        for element in soup.find_all(attrs={'itemscope': True}):
+            item_data = {
+                'itemtype': element.get('itemtype', ''),
+                'properties': {}
+            }
+            
+            for prop in element.find_all(attrs={'itemprop': True}):
+                prop_name = prop.get('itemprop')
+                prop_value = prop.get('content') or prop.get_text(strip=True)
+                item_data['properties'][prop_name] = prop_value
+            
+            structured_data['microdata'].append(item_data)
+        
+        # Extract meta tags
+        for meta in soup.find_all('meta'):
+            name = meta.get('name') or meta.get('property') or meta.get('http-equiv')
+            content = meta.get('content')
+            
+            if name and content:
+                structured_data['meta_tags'].append({
+                    'name': name,
+                    'content': content
+                })
+        
+        return structured_data
+    
+    def clean_text(self, soup: 'BeautifulSoup', remove_tags: List[str] = None) -> str:
+        """Clean and extract text content"""
+        
+        # Remove unwanted tags
+        remove_tags = remove_tags or ['script', 'style', 'nav', 'footer', 'aside']
+        
+        for tag in soup(remove_tags):
+            tag.decompose()
+        
+        # Get text and clean it
+        text = soup.get_text()
+        
+        # Clean whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        
+        return text
+
+# Async Web Scraping for High Performance
+class AsyncWebScraper:
+    """
+    Asynchronous web scraper for high-performance data collection.
+    """
+    
+    def __init__(self, config: ScrapingConfig, max_concurrent: int = 10):
+        self.config = config
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.session = None
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        connector = aiohttp.TCPConnector(
+            limit=self.max_concurrent * 2,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+            verify_ssl=self.config.verify_ssl
+        )
+        
+        timeout = aiohttp.ClientTimeout(total=self.config.timeout)
+        
+        self.session = aiohttp.ClientSession(
+            headers=self.config.headers,
+            timeout=timeout,
+            connector=connector,
+            trust_env=True
+        )
+        
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        if self.session:
+            await self.session.close()
+    
+    async def fetch_url(self, url: str, **kwargs) -> Optional[aiohttp.ClientResponse]:
+        """
+        Fetch a single URL asynchronously.
+        
+        Args:
+            url: Target URL
+            **kwargs: Additional arguments for aiohttp request
+        
+        Returns:
+            Response object or None
+        """
+        async with self.semaphore:
+            try:
+                # Rate limiting
+                await asyncio.sleep(self.config.rate_limit_delay)
+                
+                async with self.session.get(url, **kwargs) as response:
+                    # Read response content
+                    content = await response.read()
+                    
+                    self.logger.info(f"Fetched {url} - Status: {response.status}")
+                    
+                    # Create a response-like object with content
+                    class AsyncResponse:
+                        def __init__(self, status, headers, content, url):
+                            self.status = status
+                            self.headers = headers
+                            self.content = content
+                            self.url = url
+                        
+                        async def text(self):
+                            return self.content.decode('utf-8', errors='replace')
+                        
+                        async def json(self):
+                            return json.loads(self.content)
+                    
+                    return AsyncResponse(response.status, response.headers, content, url)
+                    
+            except asyncio.TimeoutError:
+                self.logger.error(f"Timeout for {url}")
+                return None
+            except aiohttp.ClientError as e:
+                self.logger.error(f"Client error for {url}: {e}")
+                return None
+            except Exception as e:
+                self.logger.error(f"Unexpected error for {url}: {e}")
+                return None
+    
+    async def fetch_multiple(self, urls: List[str]) -> List[Optional[aiohttp.ClientResponse]]:
+        """
+        Fetch multiple URLs concurrently.
+        
+        Args:
+            urls: List of URLs to fetch
+        
+        Returns:
+            List of response objects
+        """
+        tasks = [self.fetch_url(url) for url in urls]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Handle exceptions
+        processed_results = []
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"Task failed with exception: {result}")
+                processed_results.append(None)
+            else:
+                processed_results.append(result)
+        
+        return processed_results
+
+# Usage examples and demonstrations
+class WebScrapingExamples:
+    """Practical web scraping examples and patterns"""
+    
+    def __init__(self):
+        self.config = ScrapingConfig(
+            base_url="https://httpbin.org",
+            rate_limit_delay=0.5,
+            max_retries=2
+        )
+        self.scraper = AdvancedWebScraper(self.config)
+        self.parser = AdvancedHTMLParser()
+    
+    def scrape_news_website(self, base_url: str) -> Dict[str, List[Dict]]:
+        """Example: Scrape a news website for articles"""
+        
+        # Get main page
+        response = self.scraper.make_request(base_url)
+        if not response:
+            return {'articles': [], 'error': 'Failed to fetch main page'}
+        
+        soup = self.parser.parse_html(response.content)
+        if not soup:
+            return {'articles': [], 'error': 'Failed to parse HTML'}
+        
+        # Extract article links (this would need to be customized per site)
+        article_links = []
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if 'article' in href or 'news' in href:  # Simple heuristic
+                full_url = urljoin(base_url, href)
+                article_links.append({
+                    'url': full_url,
+                    'title': link.get_text(strip=True)
+                })
+        
+        # Scrape first few articles
+        articles = []
+        for article_link in article_links[:5]:  # Limit to 5 for demo
+            article_response = self.scraper.make_request(article_link['url'])
+            if article_response:
+                article_soup = self.parser.parse_html(article_response.content)
+                if article_soup:
+                    # Extract article content
+                    title = article_soup.find('h1')
+                    title_text = title.get_text(strip=True) if title else article_link['title']
+                    
+                    # Try to find article body
+                    content_selectors = ['article', '.content', '.post-content', 'main']
+                    content = ''
+                    
+                    for selector in content_selectors:
+                        content_elem = article_soup.select_one(selector)
+                        if content_elem:
+                            content = self.parser.clean_text(content_elem)
+                            break
+                    
+                    articles.append({
+                        'title': title_text,
+                        'url': article_link['url'],
+                        'content': content[:500] + '...' if len(content) > 500 else content,
+                        'length': len(content)
+                    })
+        
+        return {'articles': articles, 'total_found': len(article_links)}
+    
+    def scrape_api_with_pagination(self, api_base: str, max_pages: int = 5) -> List[Dict]:
+        """Example: Scrape API with pagination"""
+        all_data = []
+        page = 1
+        
+        while page <= max_pages:
+            url = f"{api_base}?page={page}"
+            data = self.scraper.get_json(url)
+            
+            if not data or not data.get('results'):
+                break
+            
+            all_data.extend(data['results'])
+            
+            # Check if there's a next page
+            if not data.get('next'):
+                break
+            
+            page += 1
+        
+        return all_data
+    
+    def extract_product_catalog(self, catalog_url: str) -> List[Dict]:
+        """Example: Extract product information from an e-commerce site"""
+        response = self.scraper.make_request(catalog_url)
+        if not response:
+            return []
+        
+        soup = self.parser.parse_html(response.content)
+        if not soup:
+            return []
+        
+        products = []
+        
+        # Look for common product selectors
+        product_selectors = [
+            '.product', '.item', '[data-product]', '.product-card'
+        ]
+        
+        for selector in product_selectors:
+            product_elements = soup.select(selector)
+            if product_elements:
+                for elem in product_elements:
+                    # Extract product information
+                    name_elem = elem.select_one('h1, h2, h3, .name, .title, [data-name]')
+                    price_elem = elem.select_one('.price, .cost, [data-price]')
+                    image_elem = elem.select_one('img')
+                    link_elem = elem.select_one('a')
+                    
+                    product = {
+                        'name': name_elem.get_text(strip=True) if name_elem else 'Unknown',
+                        'price': price_elem.get_text(strip=True) if price_elem else 'N/A',
+                        'image': image_elem.get('src') if image_elem else None,
+                        'link': urljoin(catalog_url, link_elem.get('href')) if link_elem else None
+                    }
+                    
+                    products.append(product)
+                
+                break  # Stop after finding products with one selector
+        
+        return products[:20]  # Limit results
+
+# Demonstration
+if __name__ == "__main__":
+    print("=== Advanced Web Scraping Examples ===")
+    
+    # Basic synchronous scraping
+    config = ScrapingConfig(
+        base_url="https://httpbin.org",
+        rate_limit_delay=0.1,  # Faster for demo
+        max_retries=2
+    )
+    
+    scraper = AdvancedWebScraper(config)
+    
+    print("\n1. Testing basic HTTP requests...")
+    
+    # Test different HTTP methods
+    test_urls = [
+        "https://httpbin.org/json",
+        "https://httpbin.org/user-agent",
+        "https://httpbin.org/headers"
+    ]
+    
+    responses = scraper.batch_requests(test_urls, max_workers=3)
+    for i, response in enumerate(responses):
+        if response:
+            print(f"URL {i+1}: Status {response.status_code}")
+        else:
+            print(f"URL {i+1}: Failed")
+    
+    # Test JSON endpoint
+    json_data = scraper.get_json("https://httpbin.org/json")
+    if json_data:
+        print(f"\nJSON data received: {list(json_data.keys())}")
+    
+    print(f"\nScraping stats: {scraper.get_stats()}")
+    
+    print("\n2. Testing HTML parsing...")
+    
+    # Create sample HTML for parsing
+    sample_html = """
+    <html>
+        <head>
+            <title>Sample Page</title>
+            <meta name="description" content="A sample page for testing">
+        </head>
+        <body>
+            <h1>Welcome to Sample Page</h1>
+            <nav>
+                <a href="/page1" title="Page 1">Page 1</a>
+                <a href="/page2" title="Page 2">Page 2</a>
+                <a href="https://external.com" title="External">External Site</a>
+            </nav>
+            <main>
+                <article>
+                    <h2>Article Title</h2>
+                    <p>This is some sample content for testing.</p>
+                    <img src="/image1.jpg" alt="Sample Image" width="300" height="200">
+                </article>
+                <table>
+                    <tr><th>Name</th><th>Age</th></tr>
+                    <tr><td>John</td><td>30</td></tr>
+                    <tr><td>Jane</td><td>25</td></tr>
+                </table>
+            </main>
+        </body>
+    </html>
+    """
+    
+    parser = AdvancedHTMLParser()
+    soup = parser.parse_html(sample_html)
+    
+    if soup:
+        # Extract links
+        links = parser.extract_links(soup, base_url="https://example.com", filter_external=True)
+        print(f"Found {len(links)} internal links")
+        
+        # Extract images
+        images = parser.extract_images(soup, base_url="https://example.com")
+        print(f"Found {len(images)} images")
+        
+        # Extract tables
+        tables = parser.extract_tables(soup)
+        print(f"Found {len(tables)} tables")
+        if tables:
+            print(f"First table has {len(tables[0])} rows")
+        
+        # Extract structured data
+        structured_data = parser.extract_structured_data(soup)
+        print(f"Found {len(structured_data['meta_tags'])} meta tags")
+        
+        # Clean text
+        clean_text = parser.clean_text(soup)
+        print(f"Cleaned text length: {len(clean_text)} characters")
+    
+    print("\n3. Testing advanced examples...")
+    
+    examples = WebScrapingExamples()
+    
+    # Test API pagination (using httpbin for demo)
+    api_data = examples.scrape_api_with_pagination("https://httpbin.org/json", max_pages=2)
+    print(f"Collected {len(api_data)} items from API")
+    
+    print("\nWeb scraping examples completed successfully!")
+    print("\nTips for production use:")
+    print("- Always respect robots.txt")
+    print("- Implement proper rate limiting")
+    print("- Handle errors gracefully")
+    print("- Use caching when appropriate")
+    print("- Monitor for anti-bot measures")
+    print("- Consider using rotating proxies for large-scale scraping")
+```

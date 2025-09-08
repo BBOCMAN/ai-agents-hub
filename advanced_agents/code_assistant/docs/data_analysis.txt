@@ -1,0 +1,1689 @@
+# Advanced Data Analysis with Python - Production-Ready Patterns
+
+## Comprehensive Pandas Operations and Best Practices
+
+### Advanced Data Loading and Connection Management
+```python
+import pandas as pd
+import numpy as np
+import sqlite3
+import logging
+from typing import Optional, Dict, List, Any, Union
+from pathlib import Path
+import warnings
+from contextlib import contextmanager
+import psycopg2
+from sqlalchemy import create_engine
+import boto3
+from io import StringIO
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class DataLoader:
+    """
+    Production-ready data loading with error handling and optimization.
+    """
+    
+    def __init__(self):
+        self.supported_formats = {'.csv', '.xlsx', '.json', '.parquet', '.feather'}
+    
+    def load_csv_optimized(self, filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
+        """
+        Load CSV with memory optimization and error handling.
+        
+        Args:
+            filepath: Path to CSV file
+            **kwargs: Additional pandas.read_csv parameters
+        
+        Returns:
+            Optimized DataFrame
+        """
+        try:
+            # First pass: detect data types for optimization
+            sample_df = pd.read_csv(filepath, nrows=1000)
+            
+            # Optimize dtypes
+            optimized_dtypes = {}
+            for col in sample_df.columns:
+                if sample_df[col].dtype == 'object':
+                    # Check if it's categorical
+                    unique_ratio = sample_df[col].nunique() / len(sample_df[col])
+                    if unique_ratio < 0.5:  # If less than 50% unique values
+                        optimized_dtypes[col] = 'category'
+                elif sample_df[col].dtype == 'int64':
+                    # Downcast integers
+                    max_val = sample_df[col].max()
+                    min_val = sample_df[col].min()
+                    
+                    if min_val >= 0:
+                        if max_val < 255:
+                            optimized_dtypes[col] = 'uint8'
+                        elif max_val < 65535:
+                            optimized_dtypes[col] = 'uint16'
+                        elif max_val < 4294967295:
+                            optimized_dtypes[col] = 'uint32'
+                    else:
+                        if min_val > -128 and max_val < 127:
+                            optimized_dtypes[col] = 'int8'
+                        elif min_val > -32768 and max_val < 32767:
+                            optimized_dtypes[col] = 'int16'
+                        elif min_val > -2147483648 and max_val < 2147483647:
+                            optimized_dtypes[col] = 'int32'
+                
+                elif sample_df[col].dtype == 'float64':
+                    # Downcast floats
+                    optimized_dtypes[col] = 'float32'
+            
+            # Load full dataset with optimized types
+            df = pd.read_csv(filepath, dtype=optimized_dtypes, **kwargs)
+            
+            memory_usage = df.memory_usage(deep=True).sum() / 1024**2
+            logger.info(f"Loaded {len(df)} rows, {len(df.columns)} columns. "
+                       f"Memory usage: {memory_usage:.2f} MB")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error loading CSV {filepath}: {e}")
+            raise
+    
+    @contextmanager
+    def database_connection(self, connection_string: str):
+        """Context manager for database connections"""
+        conn = None
+        try:
+            if 'postgresql' in connection_string:
+                engine = create_engine(connection_string)
+                conn = engine.connect()
+            else:
+                conn = sqlite3.connect(connection_string)
+            yield conn
+        except Exception as e:
+            logger.error(f"Database connection error: {e}")
+            raise
+        finally:
+            if conn:
+                conn.close()
+    
+    def load_from_database(self, query: str, connection_string: str, 
+                          chunk_size: Optional[int] = None) -> pd.DataFrame:
+        """
+        Load data from database with chunking for large datasets.
+        
+        Args:
+            query: SQL query to execute
+            connection_string: Database connection string
+            chunk_size: Process data in chunks if specified
+        
+        Returns:
+            DataFrame with query results
+        """
+        try:
+            with self.database_connection(connection_string) as conn:
+                if chunk_size:
+                    chunks = []
+                    for chunk in pd.read_sql_query(query, conn, chunksize=chunk_size):
+                        # Process each chunk if needed
+                        chunks.append(chunk)
+                    df = pd.concat(chunks, ignore_index=True)
+                else:
+                    df = pd.read_sql_query(query, conn)
+                
+                logger.info(f"Loaded {len(df)} rows from database")
+                return df
+                
+        except Exception as e:
+            logger.error(f"Database query error: {e}")
+            raise
+    
+    def load_from_s3(self, bucket: str, key: str, aws_access_key: str, 
+                     aws_secret_key: str, region: str = 'us-east-1') -> pd.DataFrame:
+        """Load CSV directly from S3 bucket"""
+        try:
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=aws_access_key,
+                aws_secret_access_key=aws_secret_key,
+                region_name=region
+            )
+            
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+            df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            
+            logger.info(f"Loaded {len(df)} rows from S3: s3://{bucket}/{key}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"S3 loading error: {e}")
+            raise
+
+# Advanced data exploration and profiling
+class DataProfiler:
+    """Comprehensive data profiling and quality assessment"""
+    
+    def __init__(self, df: pd.DataFrame):
+        self.df = df
+        self.profile_results = {}
+    
+    def generate_comprehensive_profile(self) -> Dict[str, Any]:
+        """Generate complete data profile"""
+        
+        profile = {
+            'basic_info': self._basic_info(),
+            'missing_data': self._missing_data_analysis(),
+            'data_types': self._data_type_analysis(),
+            'numerical_summary': self._numerical_summary(),
+            'categorical_summary': self._categorical_summary(),
+            'correlation_analysis': self._correlation_analysis(),
+            'outlier_detection': self._outlier_detection(),
+            'data_quality_score': self._calculate_quality_score()
+        }
+        
+        self.profile_results = profile
+        return profile
+    
+    def _basic_info(self) -> Dict[str, Any]:
+        """Basic dataset information"""
+        return {
+            'shape': self.df.shape,
+            'memory_usage_mb': self.df.memory_usage(deep=True).sum() / 1024**2,
+            'columns': list(self.df.columns),
+            'dtypes': self.df.dtypes.to_dict(),
+            'duplicated_rows': self.df.duplicated().sum(),
+            'duplicate_percentage': (self.df.duplicated().sum() / len(self.df)) * 100
+        }
+    
+    def _missing_data_analysis(self) -> Dict[str, Any]:
+        """Comprehensive missing data analysis"""
+        missing_counts = self.df.isnull().sum()
+        missing_percentages = (missing_counts / len(self.df)) * 100
+        
+        return {
+            'missing_counts': missing_counts.to_dict(),
+            'missing_percentages': missing_percentages.to_dict(),
+            'columns_with_missing': missing_counts[missing_counts > 0].index.tolist(),
+            'complete_rows': len(self.df) - self.df.isnull().any(axis=1).sum(),
+            'complete_rows_percentage': ((len(self.df) - self.df.isnull().any(axis=1).sum()) / len(self.df)) * 100
+        }
+    
+    def _numerical_summary(self) -> Dict[str, Any]:
+        """Advanced numerical data analysis"""
+        numerical_cols = self.df.select_dtypes(include=[np.number]).columns
+        
+        if len(numerical_cols) == 0:
+            return {'message': 'No numerical columns found'}
+        
+        summary = {}
+        for col in numerical_cols:
+            col_data = self.df[col].dropna()
+            
+            summary[col] = {
+                'count': len(col_data),
+                'mean': col_data.mean(),
+                'median': col_data.median(),
+                'std': col_data.std(),
+                'min': col_data.min(),
+                'max': col_data.max(),
+                'q25': col_data.quantile(0.25),
+                'q75': col_data.quantile(0.75),
+                'skewness': col_data.skew(),
+                'kurtosis': col_data.kurtosis(),
+                'zeros_count': (col_data == 0).sum(),
+                'zeros_percentage': ((col_data == 0).sum() / len(col_data)) * 100
+            }
+        
+        return summary
+    
+    def _categorical_summary(self) -> Dict[str, Any]:
+        """Categorical data analysis"""
+        categorical_cols = self.df.select_dtypes(include=['object', 'category']).columns
+        
+        if len(categorical_cols) == 0:
+            return {'message': 'No categorical columns found'}
+        
+        summary = {}
+        for col in categorical_cols:
+            col_data = self.df[col].dropna()
+            value_counts = col_data.value_counts()
+            
+            summary[col] = {
+                'unique_count': col_data.nunique(),
+                'most_frequent': value_counts.index[0] if len(value_counts) > 0 else None,
+                'most_frequent_count': value_counts.iloc[0] if len(value_counts) > 0 else 0,
+                'cardinality_ratio': col_data.nunique() / len(col_data),
+                'top_5_values': value_counts.head().to_dict()
+            }
+        
+        return summary
+    
+    def _correlation_analysis(self) -> Dict[str, Any]:
+        """Correlation analysis for numerical columns"""
+        numerical_df = self.df.select_dtypes(include=[np.number])
+        
+        if numerical_df.shape[1] < 2:
+            return {'message': 'Insufficient numerical columns for correlation analysis'}
+        
+        correlation_matrix = numerical_df.corr()
+        
+        # Find highly correlated pairs
+        high_correlations = []
+        for i in range(len(correlation_matrix.columns)):
+            for j in range(i+1, len(correlation_matrix.columns)):
+                corr_value = correlation_matrix.iloc[i, j]
+                if abs(corr_value) > 0.7:  # Threshold for high correlation
+                    high_correlations.append({
+                        'var1': correlation_matrix.columns[i],
+                        'var2': correlation_matrix.columns[j],
+                        'correlation': corr_value
+                    })
+        
+        return {
+            'correlation_matrix': correlation_matrix.to_dict(),
+            'high_correlations': high_correlations
+        }
+    
+    def _outlier_detection(self) -> Dict[str, Any]:
+        """Detect outliers using IQR method"""
+        numerical_cols = self.df.select_dtypes(include=[np.number]).columns
+        outliers_info = {}
+        
+        for col in numerical_cols:
+            col_data = self.df[col].dropna()
+            Q1 = col_data.quantile(0.25)
+            Q3 = col_data.quantile(0.75)
+            IQR = Q3 - Q1
+            
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            outliers = col_data[(col_data < lower_bound) | (col_data > upper_bound)]
+            
+            outliers_info[col] = {
+                'outlier_count': len(outliers),
+                'outlier_percentage': (len(outliers) / len(col_data)) * 100,
+                'lower_bound': lower_bound,
+                'upper_bound': upper_bound,
+                'outlier_values': outliers.tolist()[:10]  # First 10 outliers
+            }
+        
+        return outliers_info
+    
+    def _calculate_quality_score(self) -> float:
+        """Calculate overall data quality score (0-100)"""
+        score = 100
+        
+        # Deduct for missing data
+        missing_ratio = self.df.isnull().sum().sum() / (len(self.df) * len(self.df.columns))
+        score -= missing_ratio * 30
+        
+        # Deduct for duplicates
+        duplicate_ratio = self.df.duplicated().sum() / len(self.df)
+        score -= duplicate_ratio * 20
+        
+        # Deduct for outliers in numerical columns
+        numerical_cols = self.df.select_dtypes(include=[np.number]).columns
+        if len(numerical_cols) > 0:
+            total_outliers = 0
+            total_values = 0
+            
+            for col in numerical_cols:
+                col_data = self.df[col].dropna()
+                Q1 = col_data.quantile(0.25)
+                Q3 = col_data.quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outliers = col_data[(col_data < lower_bound) | (col_data > upper_bound)]
+                
+                total_outliers += len(outliers)
+                total_values += len(col_data)
+            
+            if total_values > 0:
+                outlier_ratio = total_outliers / total_values
+                score -= outlier_ratio * 15
+        
+        return max(0, score)
+
+# Advanced data cleaning and preprocessing
+class DataCleaner:
+    """Production-ready data cleaning and preprocessing"""
+    
+    def __init__(self, df: pd.DataFrame):
+        self.df = df.copy()
+        self.cleaning_log = []
+    
+    def clean_comprehensive(self, 
+                          remove_duplicates: bool = True,
+                          handle_missing: str = 'auto',
+                          handle_outliers: str = 'flag',
+                          standardize_text: bool = True) -> pd.DataFrame:
+        """
+        Comprehensive data cleaning pipeline.
+        
+        Args:
+            remove_duplicates: Whether to remove duplicate rows
+            handle_missing: Strategy for missing values ('auto', 'drop', 'fill', 'interpolate')
+            handle_outliers: Strategy for outliers ('flag', 'remove', 'cap')
+            standardize_text: Whether to standardize text columns
+        
+        Returns:
+            Cleaned DataFrame
+        """
+        
+        original_shape = self.df.shape
+        
+        if remove_duplicates:
+            self.df = self._remove_duplicates()
+        
+        if handle_missing != 'none':
+            self.df = self._handle_missing_values(strategy=handle_missing)
+        
+        if handle_outliers != 'none':
+            self.df = self._handle_outliers(strategy=handle_outliers)
+        
+        if standardize_text:
+            self.df = self._standardize_text_columns()
+        
+        # Optimize data types
+        self.df = self._optimize_dtypes()
+        
+        final_shape = self.df.shape
+        self.cleaning_log.append(f"Cleaning complete: {original_shape} -> {final_shape}")
+        
+        return self.df
+    
+    def _remove_duplicates(self) -> pd.DataFrame:
+        """Remove duplicate rows"""
+        before_count = len(self.df)
+        self.df = self.df.drop_duplicates()
+        after_count = len(self.df)
+        
+        removed = before_count - after_count
+        self.cleaning_log.append(f"Removed {removed} duplicate rows")
+        
+        return self.df
+    
+    def _handle_missing_values(self, strategy: str = 'auto') -> pd.DataFrame:
+        """Handle missing values with various strategies"""
+        
+        for col in self.df.columns:
+            missing_count = self.df[col].isnull().sum()
+            
+            if missing_count == 0:
+                continue
+            
+            missing_ratio = missing_count / len(self.df)
+            
+            if strategy == 'auto':
+                if missing_ratio > 0.5:
+                    # Drop columns with >50% missing
+                    self.df = self.df.drop(columns=[col])
+                    self.cleaning_log.append(f"Dropped column '{col}' (>{missing_ratio:.1%} missing)")
+                elif self.df[col].dtype in ['object', 'category']:
+                    # Fill categorical with mode
+                    mode_value = self.df[col].mode().iloc[0] if len(self.df[col].mode()) > 0 else 'Unknown'
+                    self.df[col] = self.df[col].fillna(mode_value)
+                    self.cleaning_log.append(f"Filled '{col}' missing values with mode: '{mode_value}'")
+                elif pd.api.types.is_numeric_dtype(self.df[col]):
+                    # Fill numerical with median
+                    median_value = self.df[col].median()
+                    self.df[col] = self.df[col].fillna(median_value)
+                    self.cleaning_log.append(f"Filled '{col}' missing values with median: {median_value}")
+                elif pd.api.types.is_datetime64_any_dtype(self.df[col]):
+                    # Forward fill datetime
+                    self.df[col] = self.df[col].fillna(method='ffill')
+                    self.cleaning_log.append(f"Forward filled '{col}' datetime missing values")
+            
+            elif strategy == 'drop':
+                self.df = self.df.dropna(subset=[col])
+                self.cleaning_log.append(f"Dropped rows with missing '{col}' values")
+            
+            elif strategy == 'interpolate' and pd.api.types.is_numeric_dtype(self.df[col]):
+                self.df[col] = self.df[col].interpolate(method='linear')
+                self.cleaning_log.append(f"Interpolated missing values in '{col}'")
+        
+        return self.df
+    
+    def _handle_outliers(self, strategy: str = 'flag') -> pd.DataFrame:
+        """Handle outliers in numerical columns"""
+        
+        numerical_cols = self.df.select_dtypes(include=[np.number]).columns
+        
+        for col in numerical_cols:
+            Q1 = self.df[col].quantile(0.25)
+            Q3 = self.df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            outlier_mask = (self.df[col] < lower_bound) | (self.df[col] > upper_bound)
+            outlier_count = outlier_mask.sum()
+            
+            if outlier_count == 0:
+                continue
+            
+            if strategy == 'flag':
+                # Create outlier flag column
+                self.df[f'{col}_is_outlier'] = outlier_mask
+                self.cleaning_log.append(f"Flagged {outlier_count} outliers in '{col}'")
+            
+            elif strategy == 'remove':
+                # Remove outlier rows
+                self.df = self.df[~outlier_mask]
+                self.cleaning_log.append(f"Removed {outlier_count} outliers from '{col}'")
+            
+            elif strategy == 'cap':
+                # Cap outliers to bounds
+                self.df[col] = self.df[col].clip(lower=lower_bound, upper=upper_bound)
+                self.cleaning_log.append(f"Capped {outlier_count} outliers in '{col}' to bounds")
+        
+        return self.df
+    
+    def _standardize_text_columns(self) -> pd.DataFrame:
+        """Standardize text columns"""
+        
+        text_cols = self.df.select_dtypes(include=['object']).columns
+        
+        for col in text_cols:
+            # Skip if column seems to be categorical with few unique values
+            if self.df[col].nunique() / len(self.df[col]) < 0.1:
+                continue
+            
+            original_values = self.df[col].nunique()
+            
+            # Standardize text
+            self.df[col] = self.df[col].astype(str)
+            self.df[col] = self.df[col].str.strip()  # Remove leading/trailing whitespace
+            self.df[col] = self.df[col].str.lower()  # Convert to lowercase
+            self.df[col] = self.df[col].replace('nan', np.nan)  # Convert 'nan' strings back to NaN
+            
+            new_values = self.df[col].nunique()
+            
+            if new_values != original_values:
+                self.cleaning_log.append(f"Standardized text in '{col}': {original_values} -> {new_values} unique values")
+        
+        return self.df
+    
+    def _optimize_dtypes(self) -> pd.DataFrame:
+        """Optimize data types for memory efficiency"""
+        
+        memory_before = self.df.memory_usage(deep=True).sum() / 1024**2
+        
+        for col in self.df.columns:
+            col_type = self.df[col].dtype
+            
+            if col_type == 'object':
+                # Convert to category if low cardinality
+                unique_ratio = self.df[col].nunique() / len(self.df[col])
+                if unique_ratio < 0.5:
+                    self.df[col] = self.df[col].astype('category')
+            
+            elif col_type == 'int64':
+                # Downcast integers
+                self.df[col] = pd.to_numeric(self.df[col], downcast='integer')
+            
+            elif col_type == 'float64':
+                # Downcast floats
+                self.df[col] = pd.to_numeric(self.df[col], downcast='float')
+        
+        memory_after = self.df.memory_usage(deep=True).sum() / 1024**2
+        memory_saved = memory_before - memory_after
+        
+        self.cleaning_log.append(f"Memory optimization: {memory_before:.2f}MB -> {memory_after:.2f}MB "
+                               f"(saved {memory_saved:.2f}MB)")
+        
+        return self.df
+    
+    def get_cleaning_report(self) -> str:
+        """Get comprehensive cleaning report"""
+        return "\n".join(self.cleaning_log)
+
+# Usage example
+if __name__ == "__main__":
+    # Create sample data
+    np.random.seed(42)
+    
+    data = {
+        'customer_id': range(1, 1001),
+        'age': np.random.normal(35, 10, 1000).astype(int),
+        'income': np.random.lognormal(10, 0.5, 1000),
+        'category': np.random.choice(['A', 'B', 'C', 'D'], 1000),
+        'purchase_amount': np.random.exponential(100, 1000),
+        'satisfaction': np.random.choice([1, 2, 3, 4, 5, np.nan], 1000, p=[0.1, 0.1, 0.2, 0.3, 0.25, 0.05]),
+        'city': np.random.choice(['New York', 'Los Angeles', 'Chicago', 'Houston', np.nan], 1000, p=[0.3, 0.25, 0.2, 0.2, 0.05])
+    }
+    
+    df = pd.DataFrame(data)
+    
+    # Add some duplicates and outliers
+    df = pd.concat([df, df.head(50)], ignore_index=True)  # Add duplicates
+    df.loc[df.sample(20).index, 'income'] *= 10  # Create outliers
+    
+    print("=== Original Data Info ===")
+    print(f"Shape: {df.shape}")
+    print(f"Memory usage: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+    
+    # Data profiling
+    print("\n=== Data Profiling ===")
+    profiler = DataProfiler(df)
+    profile = profiler.generate_comprehensive_profile()
+    print(f"Data Quality Score: {profile['data_quality_score']:.1f}/100")
+    print(f"Missing data: {profile['missing_data']['missing_percentages']}")
+    print(f"Duplicates: {profile['basic_info']['duplicate_percentage']:.1f}%")
+    
+    # Data cleaning
+    print("\n=== Data Cleaning ===")
+    cleaner = DataCleaner(df)
+    cleaned_df = cleaner.clean_comprehensive()
+    
+    print("\n=== Cleaning Report ===")
+    print(cleaner.get_cleaning_report())
+    
+    print(f"\nFinal shape: {cleaned_df.shape}")
+    print(f"Final memory usage: {cleaned_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+```
+## Advanced Data Visualization - Production-Ready Charts and Dashboards
+
+### Professional Matplotlib Visualizations
+```python
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import seaborn as sns
+from matplotlib.patches import Rectangle
+from matplotlib.animation import FuncAnimation
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set professional style
+plt.style.use('seaborn-v0_8')  # Updated seaborn style
+sns.set_palette("husl")
+
+class AdvancedVisualizer:
+    """
+    Production-ready data visualization with consistent styling and interactivity.
+    """
+    
+    def __init__(self, figsize=(12, 8), dpi=300):
+        self.figsize = figsize
+        self.dpi = dpi
+        self.color_palette = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#592E83']
+        
+        # Set global matplotlib parameters
+        plt.rcParams.update({
+            'figure.figsize': figsize,
+            'figure.dpi': dpi,
+            'font.size': 10,
+            'axes.titlesize': 14,
+            'axes.labelsize': 12,
+            'xtick.labelsize': 10,
+            'ytick.labelsize': 10,
+            'legend.fontsize': 10,
+            'figure.titlesize': 16
+        })
+    
+    def create_comprehensive_eda_dashboard(self, df: pd.DataFrame, target_col: str = None) -> plt.Figure:
+        """
+        Create comprehensive EDA dashboard with multiple subplots.
+        
+        Args:
+            df: DataFrame to analyze
+            target_col: Target column for analysis
+        
+        Returns:
+            Matplotlib figure object
+        """
+        
+        # Determine layout based on data types
+        numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        fig = plt.figure(figsize=(20, 16))
+        
+        # 1. Dataset Overview (top-left)
+        ax1 = plt.subplot(3, 4, 1)
+        self._plot_dataset_overview(df, ax1)
+        
+        # 2. Missing Data Heatmap (top-middle-left)
+        ax2 = plt.subplot(3, 4, 2)
+        self._plot_missing_data_heatmap(df, ax2)
+        
+        # 3. Correlation Heatmap (top-middle-right)
+        ax3 = plt.subplot(3, 4, 3)
+        self._plot_correlation_heatmap(df, ax3)
+        
+        # 4. Data Types Distribution (top-right)
+        ax4 = plt.subplot(3, 4, 4)
+        self._plot_data_types_distribution(df, ax4)
+        
+        # 5. Distribution of Numerical Features (middle row)
+        if len(numerical_cols) > 0:
+            ax5 = plt.subplot(3, 2, 3)
+            self._plot_numerical_distributions(df[numerical_cols], ax5)
+        
+        # 6. Categorical Features (middle-right)
+        if len(categorical_cols) > 0:
+            ax6 = plt.subplot(3, 2, 4)
+            self._plot_categorical_distributions(df, categorical_cols[:4], ax6)
+        
+        # 7. Outlier Detection Box Plots (bottom-left)
+        if len(numerical_cols) > 0:
+            ax7 = plt.subplot(3, 2, 5)
+            self._plot_outlier_detection(df[numerical_cols], ax7)
+        
+        # 8. Target Analysis (if provided)
+        if target_col and target_col in df.columns:
+            ax8 = plt.subplot(3, 2, 6)
+            self._plot_target_analysis(df, target_col, ax8)
+        
+        plt.tight_layout(pad=3.0)
+        plt.suptitle('Comprehensive Exploratory Data Analysis Dashboard', 
+                    fontsize=20, y=0.98, fontweight='bold')
+        
+        return fig
+    
+    def _plot_dataset_overview(self, df: pd.DataFrame, ax: plt.Axes):
+        """Plot dataset overview statistics"""
+        ax.axis('off')
+        
+        info_text = f"""
+        Dataset Overview
+        ━━━━━━━━━━━━━━━━
+        
+        Shape: {df.shape[0]:,} rows × {df.shape[1]} columns
+        Memory: {df.memory_usage(deep=True).sum() / 1024**2:.1f} MB
+        
+        Missing Values: {df.isnull().sum().sum():,} ({(df.isnull().sum().sum() / df.size * 100):.1f}%)
+        Duplicates: {df.duplicated().sum():,} ({(df.duplicated().sum() / len(df) * 100):.1f}%)
+        
+        Data Types:
+        • Numerical: {len(df.select_dtypes(include=[np.number]).columns)}
+        • Categorical: {len(df.select_dtypes(include=['object', 'category']).columns)}
+        • DateTime: {len(df.select_dtypes(include=['datetime']).columns)}
+        """
+        
+        ax.text(0.05, 0.95, info_text, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.7))
+    
+    def _plot_missing_data_heatmap(self, df: pd.DataFrame, ax: plt.Axes):
+        """Plot missing data heatmap"""
+        missing_data = df.isnull()
+        
+        if missing_data.sum().sum() == 0:
+            ax.text(0.5, 0.5, 'No Missing Data', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=14, fontweight='bold')
+            ax.set_title('Missing Data Pattern')
+            return
+        
+        # Plot heatmap
+        sns.heatmap(missing_data.transpose(), cbar=True, ax=ax, 
+                   cmap='viridis', yticklabels=True, xticklabels=False)
+        ax.set_title('Missing Data Pattern')
+        ax.set_xlabel('Samples')
+        ax.set_ylabel('Features')
+    
+    def _plot_correlation_heatmap(self, df: pd.DataFrame, ax: plt.Axes):
+        """Plot correlation heatmap for numerical features"""
+        numerical_df = df.select_dtypes(include=[np.number])
+        
+        if numerical_df.shape[1] < 2:
+            ax.text(0.5, 0.5, 'Insufficient Numerical\nColumns for Correlation',
+                   transform=ax.transAxes, ha='center', va='center',
+                   fontsize=12, fontweight='bold')
+            ax.set_title('Feature Correlations')
+            return
+        
+        correlation_matrix = numerical_df.corr()
+        
+        # Create mask for upper triangle
+        mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
+        
+        sns.heatmap(correlation_matrix, mask=mask, annot=True, fmt='.2f',
+                   center=0, cmap='RdBu_r', ax=ax, square=True,
+                   cbar_kws={'shrink': 0.8})
+        ax.set_title('Feature Correlations')
+    
+    def _plot_data_types_distribution(self, df: pd.DataFrame, ax: plt.Axes):
+        """Plot distribution of data types"""
+        type_counts = df.dtypes.value_counts()
+        
+        # Create pie chart
+        colors = self.color_palette[:len(type_counts)]
+        wedges, texts, autotexts = ax.pie(type_counts.values, labels=type_counts.index,
+                                         autopct='%1.1f%%', colors=colors, startangle=90)
+        
+        ax.set_title('Data Types Distribution')
+        
+        # Improve text readability
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+    
+    def _plot_numerical_distributions(self, numerical_df: pd.DataFrame, ax: plt.Axes):
+        """Plot distributions of numerical features"""
+        n_features = min(len(numerical_df.columns), 4)  # Limit to 4 features
+        
+        if n_features == 0:
+            ax.text(0.5, 0.5, 'No Numerical Features', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=14, fontweight='bold')
+            ax.set_title('Numerical Feature Distributions')
+            return
+        
+        # Create subplots within this subplot
+        for i, col in enumerate(numerical_df.columns[:n_features]):
+            row = i // 2
+            col_idx = i % 2
+            
+            # Create histogram with KDE
+            data = numerical_df[col].dropna()
+            
+            if len(data) > 0:
+                if i == 0:
+                    current_ax = ax
+                else:
+                    # This is a simplified approach - in practice, you'd use plt.subplot
+                    continue
+                
+                current_ax.hist(data, bins=30, alpha=0.7, density=True, 
+                              color=self.color_palette[i % len(self.color_palette)])
+                
+                # Add KDE
+                try:
+                    from scipy import stats
+                    kde = stats.gaussian_kde(data)
+                    x_range = np.linspace(data.min(), data.max(), 100)
+                    current_ax.plot(x_range, kde(x_range), 'r-', linewidth=2)
+                except ImportError:
+                    pass
+                
+                current_ax.set_title(f'Distribution: {col}')
+                current_ax.set_ylabel('Density')
+        
+        ax.set_title('Numerical Feature Distributions (Sample)')
+    
+    def _plot_categorical_distributions(self, df: pd.DataFrame, categorical_cols: List[str], ax: plt.Axes):
+        """Plot distributions of categorical features"""
+        if len(categorical_cols) == 0:
+            ax.text(0.5, 0.5, 'No Categorical Features', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=14, fontweight='bold')
+            ax.set_title('Categorical Feature Distributions')
+            return
+        
+        # Use the first categorical column for main plot
+        main_col = categorical_cols[0]
+        value_counts = df[main_col].value_counts().head(10)  # Top 10 categories
+        
+        bars = ax.bar(range(len(value_counts)), value_counts.values,
+                     color=self.color_palette[0], alpha=0.8)
+        
+        ax.set_xticks(range(len(value_counts)))
+        ax.set_xticklabels(value_counts.index, rotation=45, ha='right')
+        ax.set_ylabel('Count')
+        ax.set_title(f'Top Categories: {main_col}')
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, value_counts.values):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
+                   f'{value:,}', ha='center', va='bottom', fontsize=9)
+    
+    def _plot_outlier_detection(self, numerical_df: pd.DataFrame, ax: plt.Axes):
+        """Plot box plots for outlier detection"""
+        if numerical_df.empty:
+            ax.text(0.5, 0.5, 'No Numerical Features', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=14, fontweight='bold')
+            ax.set_title('Outlier Detection')
+            return
+        
+        # Normalize data for better visualization
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        
+        # Select first few columns to avoid overcrowding
+        cols_to_plot = numerical_df.columns[:6]
+        
+        if len(cols_to_plot) > 0:
+            normalized_data = scaler.fit_transform(numerical_df[cols_to_plot].fillna(0))
+            normalized_df = pd.DataFrame(normalized_data, columns=cols_to_plot)
+            
+            bp = ax.boxplot([normalized_df[col] for col in cols_to_plot],
+                           labels=cols_to_plot, patch_artist=True)
+            
+            # Color the boxes
+            for patch, color in zip(bp['boxes'], self.color_palette):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+            
+            ax.set_title('Outlier Detection (Standardized)')
+            ax.set_ylabel('Standardized Values')
+            ax.tick_params(axis='x', rotation=45)
+    
+    def _plot_target_analysis(self, df: pd.DataFrame, target_col: str, ax: plt.Axes):
+        """Plot target variable analysis"""
+        target_data = df[target_col].dropna()
+        
+        if pd.api.types.is_numeric_dtype(target_data):
+            # Numerical target - histogram
+            ax.hist(target_data, bins=30, alpha=0.7, color=self.color_palette[0], edgecolor='black')
+            ax.set_xlabel(target_col)
+            ax.set_ylabel('Frequency')
+            ax.set_title(f'Target Distribution: {target_col}')
+            
+            # Add statistics
+            mean_val = target_data.mean()
+            median_val = target_data.median()
+            ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.2f}')
+            ax.axvline(median_val, color='orange', linestyle='--', linewidth=2, label=f'Median: {median_val:.2f}')
+            ax.legend()
+        
+        else:
+            # Categorical target - bar plot
+            value_counts = target_data.value_counts()
+            bars = ax.bar(range(len(value_counts)), value_counts.values,
+                         color=self.color_palette[:len(value_counts)])
+            
+            ax.set_xticks(range(len(value_counts)))
+            ax.set_xticklabels(value_counts.index, rotation=45, ha='right')
+            ax.set_ylabel('Count')
+            ax.set_title(f'Target Distribution: {target_col}')
+            
+            # Add percentages
+            total = value_counts.sum()
+            for bar, value in zip(bars, value_counts.values):
+                height = bar.get_height()
+                percentage = (value / total) * 100
+                ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
+                       f'{percentage:.1f}%', ha='center', va='bottom', fontsize=9)
+
+# Interactive Plotly Visualizations
+class InteractiveVisualizer:
+    """Create interactive visualizations using Plotly"""
+    
+    def __init__(self):
+        self.color_palette = px.colors.qualitative.Set3
+    
+    def create_interactive_scatter_matrix(self, df: pd.DataFrame, color_col: str = None) -> go.Figure:
+        """Create interactive scatter plot matrix"""
+        numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        if len(numerical_cols) < 2:
+            return None
+        
+        fig = px.scatter_matrix(
+            df,
+            dimensions=numerical_cols[:6],  # Limit to 6 dimensions
+            color=color_col if color_col and color_col in df.columns else None,
+            title="Interactive Scatter Plot Matrix",
+            height=800
+        )
+        
+        fig.update_traces(diagonal_visible=False, showupperhalf=False)
+        fig.update_layout(
+            title_x=0.5,
+            font=dict(size=12),
+            width=1000,
+            height=800
+        )
+        
+        return fig
+    
+    def create_interactive_time_series(self, df: pd.DataFrame, date_col: str, 
+                                     value_cols: List[str], title: str = "Time Series Analysis") -> go.Figure:
+        """Create interactive time series plot"""
+        fig = make_subplots(
+            rows=len(value_cols), cols=1,
+            shared_xaxes=True,
+            subplot_titles=value_cols,
+            vertical_spacing=0.05
+        )
+        
+        for i, col in enumerate(value_cols, 1):
+            fig.add_trace(
+                go.Scatter(
+                    x=df[date_col],
+                    y=df[col],
+                    mode='lines+markers',
+                    name=col,
+                    line=dict(width=2),
+                    marker=dict(size=4)
+                ),
+                row=i, col=1
+            )
+        
+        fig.update_layout(
+            title=title,
+            height=300 * len(value_cols),
+            showlegend=True,
+            hovermode='x unified'
+        )
+        
+        fig.update_xaxes(title_text="Date", row=len(value_cols), col=1)
+        
+        return fig
+    
+    def create_correlation_network(self, df: pd.DataFrame, threshold: float = 0.5) -> go.Figure:
+        """Create network graph of feature correlations"""
+        numerical_df = df.select_dtypes(include=[np.number])
+        corr_matrix = numerical_df.corr()
+        
+        # Find highly correlated pairs
+        edges = []
+        edge_weights = []
+        
+        for i in range(len(corr_matrix.columns)):
+            for j in range(i+1, len(corr_matrix.columns)):
+                correlation = corr_matrix.iloc[i, j]
+                if abs(correlation) >= threshold:
+                    edges.append((corr_matrix.columns[i], corr_matrix.columns[j]))
+                    edge_weights.append(abs(correlation))
+        
+        if not edges:
+            return None
+        
+        # Create network layout
+        import networkx as nx
+        
+        G = nx.Graph()
+        for (node1, node2), weight in zip(edges, edge_weights):
+            G.add_edge(node1, node2, weight=weight)
+        
+        pos = nx.spring_layout(G, k=3, iterations=50)
+        
+        # Create edge traces
+        edge_x = []
+        edge_y = []
+        edge_info = []
+        
+        for (node1, node2), weight in zip(edges, edge_weights):
+            x0, y0 = pos[node1]
+            x1, y1 = pos[node2]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            edge_info.append(f"{node1} - {node2}: {weight:.3f}")
+        
+        edge_trace = go.Scatter(
+            x=edge_x, y=edge_y,
+            line=dict(width=2, color='#888'),
+            hoverinfo='none',
+            mode='lines'
+        )
+        
+        # Create node trace
+        node_x = []
+        node_y = []
+        node_text = []
+        node_size = []
+        
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+            node_text.append(node)
+            node_size.append(len(list(G.neighbors(node))) * 10 + 20)
+        
+        node_trace = go.Scatter(
+            x=node_x, y=node_y,
+            mode='markers+text',
+            text=node_text,
+            textposition="middle center",
+            hoverinfo='text',
+            marker=dict(
+                size=node_size,
+                color='lightblue',
+                line=dict(width=2, color='black')
+            )
+        )
+        
+        fig = go.Figure(data=[edge_trace, node_trace],
+                       layout=go.Layout(
+                           title=f'Feature Correlation Network (|r| >= {threshold})',
+                           titlefont_size=16,
+                           showlegend=False,
+                           hovermode='closest',
+                           margin=dict(b=20,l=5,r=5,t=40),
+                           annotations=[ dict(
+                               text="Node size represents number of connections",
+                               showarrow=False,
+                               xref="paper", yref="paper",
+                               x=0.005, y=-0.002,
+                               xanchor="left", yanchor="bottom",
+                               font=dict(color="black", size=12)
+                           )],
+                           xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                       ))
+        
+        return fig
+
+# Usage example with sample data
+if __name__ == "__main__":
+    # Create comprehensive sample dataset
+    np.random.seed(42)
+    n_samples = 1000
+    
+    # Generate realistic sample data
+    data = {
+        'customer_id': range(1, n_samples + 1),
+        'age': np.random.normal(35, 12, n_samples).astype(int),
+        'income': np.random.lognormal(10.5, 0.8, n_samples),
+        'credit_score': np.random.normal(650, 100, n_samples).astype(int),
+        'years_employed': np.random.exponential(5, n_samples),
+        'num_products': np.random.poisson(2.5, n_samples),
+        'satisfaction_score': np.random.choice([1, 2, 3, 4, 5], n_samples, p=[0.05, 0.1, 0.2, 0.4, 0.25]),
+        'region': np.random.choice(['North', 'South', 'East', 'West'], n_samples, p=[0.3, 0.25, 0.25, 0.2]),
+        'customer_type': np.random.choice(['Premium', 'Standard', 'Basic'], n_samples, p=[0.2, 0.5, 0.3]),
+        'churn': np.random.choice([0, 1], n_samples, p=[0.8, 0.2])
+    }
+    
+    # Add some correlations and missing values
+    df = pd.DataFrame(data)
+    
+    # Make income correlated with credit score and age
+    df['income'] = df['income'] + df['credit_score'] * 50 + df['age'] * 1000
+    
+    # Add some missing values
+    missing_indices = np.random.choice(df.index, size=int(0.1 * len(df)), replace=False)
+    df.loc[missing_indices[:50], 'satisfaction_score'] = np.nan
+    df.loc[missing_indices[50:], 'years_employed'] = np.nan
+    
+    print("=== Creating Advanced Visualizations ===")
+    
+    # Static visualizations
+    visualizer = AdvancedVisualizer()
+    
+    print("Creating comprehensive EDA dashboard...")
+    fig = visualizer.create_comprehensive_eda_dashboard(df, target_col='churn')
+    # fig.savefig('eda_dashboard.png', dpi=300, bbox_inches='tight')
+    print("EDA dashboard created successfully!")
+    
+    # Interactive visualizations
+    interactive_viz = InteractiveVisualizer()
+    
+    print("Creating interactive scatter matrix...")
+    scatter_fig = interactive_viz.create_interactive_scatter_matrix(df, color_col='customer_type')
+    if scatter_fig:
+        # scatter_fig.write_html('scatter_matrix.html')
+        print("Interactive scatter matrix created!")
+    
+    print("Creating correlation network...")
+    network_fig = interactive_viz.create_correlation_network(df, threshold=0.3)
+    if network_fig:
+        # network_fig.write_html('correlation_network.html')
+        print("Correlation network created!")
+    
+    print("\nVisualization examples completed successfully!")
+```
+
+## Advanced Statistical Analysis and Machine Learning Patterns
+
+### Statistical Testing and Hypothesis Testing
+```python
+import scipy.stats as stats
+from scipy.stats import chi2_contingency, anderson, jarque_bera
+import statsmodels.api as sm
+from statsmodels.stats.power import ttest_power
+from statsmodels.stats.contingency_tables import mcnemar
+
+class StatisticalAnalyzer:
+    """
+    Comprehensive statistical analysis toolkit for data science workflows.
+    """
+    
+    def __init__(self, alpha: float = 0.05):
+        self.alpha = alpha
+        self.results = {}
+    
+    def test_normality(self, data: pd.Series, method: str = 'all') -> Dict[str, Any]:
+        """
+        Test normality using multiple methods.
+        
+        Args:
+            data: Series to test
+            method: 'shapiro', 'jarque_bera', 'anderson', 'ks', or 'all'
+        
+        Returns:
+            Dictionary with test results
+        """
+        data_clean = data.dropna()
+        results = {'sample_size': len(data_clean)}
+        
+        if method in ['shapiro', 'all'] and len(data_clean) <= 5000:
+            # Shapiro-Wilk test (recommended for n < 5000)
+            stat, p_value = stats.shapiro(data_clean)
+            results['shapiro_wilk'] = {
+                'statistic': stat,
+                'p_value': p_value,
+                'is_normal': p_value > self.alpha
+            }
+        
+        if method in ['jarque_bera', 'all']:
+            # Jarque-Bera test
+            stat, p_value = jarque_bera(data_clean)
+            results['jarque_bera'] = {
+                'statistic': stat,
+                'p_value': p_value,
+                'is_normal': p_value > self.alpha
+            }
+        
+        if method in ['anderson', 'all']:
+            # Anderson-Darling test
+            result = anderson(data_clean, dist='norm')
+            results['anderson_darling'] = {
+                'statistic': result.statistic,
+                'critical_values': result.critical_values,
+                'significance_levels': result.significance_level,
+                'is_normal': result.statistic < result.critical_values[2]  # 5% level
+            }
+        
+        if method in ['ks', 'all']:
+            # Kolmogorov-Smirnov test
+            # Compare against normal distribution with same mean and std
+            mean, std = data_clean.mean(), data_clean.std()
+            stat, p_value = stats.kstest(data_clean, lambda x: stats.norm.cdf(x, mean, std))
+            results['kolmogorov_smirnov'] = {
+                'statistic': stat,
+                'p_value': p_value,
+                'is_normal': p_value > self.alpha
+            }
+        
+        return results
+    
+    def compare_groups(self, group1: pd.Series, group2: pd.Series, 
+                      test_type: str = 'auto') -> Dict[str, Any]:
+        """
+        Compare two groups using appropriate statistical tests.
+        
+        Args:
+            group1, group2: Data for comparison
+            test_type: 'ttest', 'mannwhitney', 'welch', or 'auto'
+        
+        Returns:
+            Dictionary with test results
+        """
+        g1_clean = group1.dropna()
+        g2_clean = group2.dropna()
+        
+        results = {
+            'group1_size': len(g1_clean),
+            'group2_size': len(g2_clean),
+            'group1_mean': g1_clean.mean(),
+            'group2_mean': g2_clean.mean(),
+            'effect_size': self._calculate_cohens_d(g1_clean, g2_clean)
+        }
+        
+        if test_type == 'auto':
+            # Choose test based on normality and sample size
+            g1_normal = self.test_normality(g1_clean, method='shapiro')
+            g2_normal = self.test_normality(g2_clean, method='shapiro')
+            
+            if (g1_normal.get('shapiro_wilk', {}).get('is_normal', False) and 
+                g2_normal.get('shapiro_wilk', {}).get('is_normal', False)):
+                test_type = 'ttest'
+            else:
+                test_type = 'mannwhitney'
+        
+        if test_type == 'ttest':
+            # Student's t-test (assumes equal variances)
+            stat, p_value = stats.ttest_ind(g1_clean, g2_clean)
+            results['test_used'] = 'Students t-test'
+            
+        elif test_type == 'welch':
+            # Welch's t-test (unequal variances)
+            stat, p_value = stats.ttest_ind(g1_clean, g2_clean, equal_var=False)
+            results['test_used'] = 'Welchs t-test'
+            
+        elif test_type == 'mannwhitney':
+            # Mann-Whitney U test (non-parametric)
+            stat, p_value = stats.mannwhitneyu(g1_clean, g2_clean, alternative='two-sided')
+            results['test_used'] = 'Mann-Whitney U test'
+        
+        results.update({
+            'statistic': stat,
+            'p_value': p_value,
+            'significant': p_value < self.alpha,
+            'power': self._calculate_power(g1_clean, g2_clean) if test_type in ['ttest', 'welch'] else None
+        })
+        
+        return results
+    
+    def _calculate_cohens_d(self, group1: pd.Series, group2: pd.Series) -> float:
+        """Calculate Cohen's d effect size"""
+        n1, n2 = len(group1), len(group2)
+        
+        # Calculate pooled standard deviation
+        pooled_std = np.sqrt(((n1 - 1) * group1.var() + (n2 - 1) * group2.var()) / (n1 + n2 - 2))
+        
+        # Calculate Cohen's d
+        cohens_d = (group1.mean() - group2.mean()) / pooled_std
+        return cohens_d
+    
+    def _calculate_power(self, group1: pd.Series, group2: pd.Series) -> float:
+        """Calculate statistical power for t-test"""
+        effect_size = self._calculate_cohens_d(group1, group2)
+        n1, n2 = len(group1), len(group2)
+        
+        # Use smaller sample size for conservative estimate
+        n_min = min(n1, n2)
+        
+        try:
+            power = ttest_power(effect_size, n_min, self.alpha, alternative='two-sided')
+            return power
+        except:
+            return None
+    
+    def test_independence(self, var1: pd.Series, var2: pd.Series) -> Dict[str, Any]:
+        """
+        Test independence between two categorical variables using Chi-square test.
+        
+        Args:
+            var1, var2: Categorical variables to test
+        
+        Returns:
+            Dictionary with test results
+        """
+        # Create contingency table
+        contingency_table = pd.crosstab(var1, var2)
+        
+        # Chi-square test
+        chi2_stat, p_value, dof, expected = chi2_contingency(contingency_table)
+        
+        # Calculate Cramér's V (effect size)
+        n = contingency_table.sum().sum()
+        cramers_v = np.sqrt(chi2_stat / (n * (min(contingency_table.shape) - 1)))
+        
+        results = {
+            'contingency_table': contingency_table.to_dict(),
+            'chi2_statistic': chi2_stat,
+            'p_value': p_value,
+            'degrees_of_freedom': dof,
+            'cramers_v': cramers_v,
+            'significant': p_value < self.alpha,
+            'expected_frequencies': pd.DataFrame(expected, 
+                                               index=contingency_table.index,
+                                               columns=contingency_table.columns).to_dict()
+        }
+        
+        return results
+
+# Advanced Feature Engineering
+class FeatureEngineer:
+    """
+    Advanced feature engineering techniques for machine learning.
+    """
+    
+    def __init__(self):
+        self.fitted_transformers = {}
+        self.feature_names = []
+    
+    def create_polynomial_features(self, df: pd.DataFrame, columns: List[str], 
+                                 degree: int = 2, include_bias: bool = False) -> pd.DataFrame:
+        """Create polynomial features for specified columns"""
+        from sklearn.preprocessing import PolynomialFeatures
+        
+        poly = PolynomialFeatures(degree=degree, include_bias=include_bias)
+        
+        # Fit and transform
+        poly_features = poly.fit_transform(df[columns])
+        
+        # Create feature names
+        feature_names = poly.get_feature_names_out(columns)
+        
+        # Create DataFrame
+        poly_df = pd.DataFrame(poly_features, columns=feature_names, index=df.index)
+        
+        # Combine with original DataFrame (excluding original columns to avoid duplication)
+        result_df = pd.concat([df.drop(columns=columns), poly_df], axis=1)
+        
+        # Store transformer
+        self.fitted_transformers['polynomial'] = poly
+        
+        return result_df
+    
+    def create_interaction_features(self, df: pd.DataFrame, 
+                                  column_pairs: List[tuple]) -> pd.DataFrame:
+        """Create interaction features between specified column pairs"""
+        result_df = df.copy()
+        
+        for col1, col2 in column_pairs:
+            if col1 in df.columns and col2 in df.columns:
+                # Multiplicative interaction
+                result_df[f'{col1}_x_{col2}'] = df[col1] * df[col2]
+                
+                # Ratio features (avoid division by zero)
+                result_df[f'{col1}_div_{col2}'] = df[col1] / (df[col2] + 1e-8)
+                result_df[f'{col2}_div_{col1}'] = df[col2] / (df[col1] + 1e-8)
+                
+                # Difference features
+                result_df[f'{col1}_minus_{col2}'] = df[col1] - df[col2]
+        
+        return result_df
+    
+    def create_binning_features(self, df: pd.DataFrame, column: str, 
+                              bins: Union[int, List[float]], labels: List[str] = None) -> pd.DataFrame:
+        """Create binned categorical features from continuous variables"""
+        result_df = df.copy()
+        
+        if isinstance(bins, int):
+            # Equal-width binning
+            result_df[f'{column}_binned'] = pd.cut(df[column], bins=bins, labels=labels)
+        else:
+            # Custom bin edges
+            result_df[f'{column}_binned'] = pd.cut(df[column], bins=bins, labels=labels)
+        
+        # Create dummy variables
+        binned_dummies = pd.get_dummies(result_df[f'{column}_binned'], 
+                                       prefix=f'{column}_bin', drop_first=True)
+        
+        result_df = pd.concat([result_df, binned_dummies], axis=1)
+        
+        return result_df
+    
+    def create_time_features(self, df: pd.DataFrame, datetime_col: str) -> pd.DataFrame:
+        """Extract comprehensive time-based features from datetime column"""
+        result_df = df.copy()
+        
+        # Convert to datetime if not already
+        if not pd.api.types.is_datetime64_any_dtype(df[datetime_col]):
+            result_df[datetime_col] = pd.to_datetime(df[datetime_col])
+        
+        dt_col = result_df[datetime_col]
+        
+        # Basic time components
+        result_df[f'{datetime_col}_year'] = dt_col.dt.year
+        result_df[f'{datetime_col}_month'] = dt_col.dt.month
+        result_df[f'{datetime_col}_day'] = dt_col.dt.day
+        result_df[f'{datetime_col}_dayofweek'] = dt_col.dt.dayofweek
+        result_df[f'{datetime_col}_hour'] = dt_col.dt.hour
+        result_df[f'{datetime_col}_minute'] = dt_col.dt.minute
+        
+        # Advanced time features
+        result_df[f'{datetime_col}_is_weekend'] = (dt_col.dt.dayofweek >= 5).astype(int)
+        result_df[f'{datetime_col}_quarter'] = dt_col.dt.quarter
+        result_df[f'{datetime_col}_is_month_end'] = dt_col.dt.is_month_end.astype(int)
+        result_df[f'{datetime_col}_is_month_start'] = dt_col.dt.is_month_start.astype(int)
+        
+        # Cyclical features (to maintain cyclical nature)
+        result_df[f'{datetime_col}_month_sin'] = np.sin(2 * np.pi * dt_col.dt.month / 12)
+        result_df[f'{datetime_col}_month_cos'] = np.cos(2 * np.pi * dt_col.dt.month / 12)
+        result_df[f'{datetime_col}_day_sin'] = np.sin(2 * np.pi * dt_col.dt.day / 31)
+        result_df[f'{datetime_col}_day_cos'] = np.cos(2 * np.pi * dt_col.dt.day / 31)
+        result_df[f'{datetime_col}_hour_sin'] = np.sin(2 * np.pi * dt_col.dt.hour / 24)
+        result_df[f'{datetime_col}_hour_cos'] = np.cos(2 * np.pi * dt_col.dt.hour / 24)
+        
+        return result_df
+    
+    def create_lag_features(self, df: pd.DataFrame, column: str, 
+                          lags: List[int], group_col: str = None) -> pd.DataFrame:
+        """Create lag features for time series data"""
+        result_df = df.copy()
+        
+        if group_col:
+            # Create lags within groups
+            for lag in lags:
+                result_df[f'{column}_lag_{lag}'] = result_df.groupby(group_col)[column].shift(lag)
+        else:
+            # Create simple lags
+            for lag in lags:
+                result_df[f'{column}_lag_{lag}'] = result_df[column].shift(lag)
+        
+        return result_df
+    
+    def create_rolling_features(self, df: pd.DataFrame, column: str, 
+                              windows: List[int], group_col: str = None) -> pd.DataFrame:
+        """Create rolling statistics features"""
+        result_df = df.copy()
+        
+        for window in windows:
+            if group_col:
+                # Rolling within groups
+                rolling_obj = result_df.groupby(group_col)[column].rolling(window, min_periods=1)
+            else:
+                # Simple rolling
+                rolling_obj = result_df[column].rolling(window, min_periods=1)
+            
+            result_df[f'{column}_rolling_mean_{window}'] = rolling_obj.mean().reset_index(0, drop=True)
+            result_df[f'{column}_rolling_std_{window}'] = rolling_obj.std().reset_index(0, drop=True)
+            result_df[f'{column}_rolling_min_{window}'] = rolling_obj.min().reset_index(0, drop=True)
+            result_df[f'{column}_rolling_max_{window}'] = rolling_obj.max().reset_index(0, drop=True)
+            result_df[f'{column}_rolling_median_{window}'] = rolling_obj.median().reset_index(0, drop=True)
+        
+        return result_df
+
+# Model Evaluation and Validation
+class ModelEvaluator:
+    """
+    Comprehensive model evaluation and validation toolkit.
+    """
+    
+    def __init__(self):
+        self.evaluation_results = {}
+    
+    def evaluate_classification_model(self, y_true: np.ndarray, y_pred: np.ndarray, 
+                                    y_pred_proba: np.ndarray = None, 
+                                    class_names: List[str] = None) -> Dict[str, Any]:
+        """
+        Comprehensive classification model evaluation.
+        
+        Args:
+            y_true: True labels
+            y_pred: Predicted labels
+            y_pred_proba: Predicted probabilities (for binary classification)
+            class_names: Names of classes
+        
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        from sklearn.metrics import (
+            accuracy_score, precision_score, recall_score, f1_score,
+            confusion_matrix, classification_report, roc_auc_score,
+            roc_curve, precision_recall_curve, log_loss
+        )
+        
+        results = {}
+        
+        # Basic metrics
+        results['accuracy'] = accuracy_score(y_true, y_pred)
+        results['precision'] = precision_score(y_true, y_pred, average='weighted')
+        results['recall'] = recall_score(y_true, y_pred, average='weighted')
+        results['f1_score'] = f1_score(y_true, y_pred, average='weighted')
+        
+        # Confusion matrix
+        cm = confusion_matrix(y_true, y_pred)
+        results['confusion_matrix'] = cm
+        
+        # Classification report
+        report = classification_report(y_true, y_pred, target_names=class_names, output_dict=True)
+        results['classification_report'] = report
+        
+        # For binary classification with probabilities
+        if y_pred_proba is not None and len(np.unique(y_true)) == 2:
+            # ROC AUC
+            results['roc_auc'] = roc_auc_score(y_true, y_pred_proba)
+            
+            # ROC Curve
+            fpr, tpr, roc_thresholds = roc_curve(y_true, y_pred_proba)
+            results['roc_curve'] = {'fpr': fpr, 'tpr': tpr, 'thresholds': roc_thresholds}
+            
+            # Precision-Recall Curve
+            precision, recall, pr_thresholds = precision_recall_curve(y_true, y_pred_proba)
+            results['pr_curve'] = {'precision': precision, 'recall': recall, 'thresholds': pr_thresholds}
+            
+            # Log loss
+            try:
+                results['log_loss'] = log_loss(y_true, y_pred_proba)
+            except ValueError:
+                results['log_loss'] = None
+        
+        return results
+    
+    def evaluate_regression_model(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, Any]:
+        """
+        Comprehensive regression model evaluation.
+        
+        Args:
+            y_true: True values
+            y_pred: Predicted values
+        
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        from sklearn.metrics import (
+            mean_squared_error, mean_absolute_error, r2_score,
+            mean_absolute_percentage_error
+        )
+        
+        results = {}
+        
+        # Basic metrics
+        results['mse'] = mean_squared_error(y_true, y_pred)
+        results['rmse'] = np.sqrt(results['mse'])
+        results['mae'] = mean_absolute_error(y_true, y_pred)
+        results['r2_score'] = r2_score(y_true, y_pred)
+        
+        try:
+            results['mape'] = mean_absolute_percentage_error(y_true, y_pred)
+        except:
+            # Calculate MAPE manually if sklearn version doesn't have it
+            results['mape'] = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        
+        # Additional metrics
+        residuals = y_true - y_pred
+        results['residuals_mean'] = np.mean(residuals)
+        results['residuals_std'] = np.std(residuals)
+        
+        # Explained variance
+        results['explained_variance'] = 1 - (np.var(residuals) / np.var(y_true))
+        
+        return results
+    
+    def cross_validate_model(self, model, X: pd.DataFrame, y: pd.Series, 
+                           cv_folds: int = 5, scoring: str = 'accuracy') -> Dict[str, Any]:
+        """
+        Perform cross-validation with comprehensive reporting.
+        
+        Args:
+            model: Scikit-learn model
+            X: Features
+            y: Target
+            cv_folds: Number of CV folds
+            scoring: Scoring metric
+        
+        Returns:
+            Dictionary with CV results
+        """
+        from sklearn.model_selection import cross_val_score, cross_validate
+        from sklearn.model_selection import StratifiedKFold, KFold
+        
+        # Choose appropriate CV strategy
+        if len(np.unique(y)) < 10:  # Classification
+            cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        else:  # Regression
+            cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        
+        # Perform cross-validation
+        cv_results = cross_validate(
+            model, X, y, cv=cv, scoring=scoring,
+            return_train_score=True, return_estimator=True
+        )
+        
+        results = {
+            'test_scores': cv_results['test_score'],
+            'train_scores': cv_results['train_score'],
+            'test_score_mean': cv_results['test_score'].mean(),
+            'test_score_std': cv_results['test_score'].std(),
+            'train_score_mean': cv_results['train_score'].mean(),
+            'train_score_std': cv_results['train_score'].std(),
+            'overfitting_score': cv_results['train_score'].mean() - cv_results['test_score'].mean()
+        }
+        
+        return results
+
+# Usage example
+if __name__ == "__main__":
+    print("=== Advanced Data Analysis Examples ===")
+    
+    # Create sample data for demonstration
+    np.random.seed(42)
+    n_samples = 500
+    
+    # Sample data with various distributions
+    normal_data = np.random.normal(100, 15, n_samples)
+    skewed_data = np.random.exponential(2, n_samples)
+    group_a = np.random.normal(100, 15, n_samples//2)
+    group_b = np.random.normal(110, 20, n_samples//2)
+    
+    # Categorical data
+    category1 = np.random.choice(['A', 'B', 'C'], n_samples, p=[0.4, 0.4, 0.2])
+    category2 = np.random.choice(['X', 'Y'], n_samples, p=[0.6, 0.4])
+    
+    # Create DataFrame
+    df = pd.DataFrame({
+        'normal_var': normal_data,
+        'skewed_var': skewed_data,
+        'category1': category1,
+        'category2': category2,
+        'timestamp': pd.date_range('2023-01-01', periods=n_samples, freq='H')
+    })
+    
+    print("\n=== Statistical Analysis ===")
+    
+    # Statistical analysis
+    analyzer = StatisticalAnalyzer(alpha=0.05)
+    
+    # Test normality
+    print("Testing normality of normal_var:")
+    normality_results = analyzer.test_normality(df['normal_var'])
+    print(f"Shapiro-Wilk p-value: {normality_results.get('shapiro_wilk', {}).get('p_value', 'N/A'):.4f}")
+    
+    print("\nTesting normality of skewed_var:")
+    skewed_normality = analyzer.test_normality(df['skewed_var'])
+    print(f"Shapiro-Wilk p-value: {skewed_normality.get('shapiro_wilk', {}).get('p_value', 'N/A'):.6f}")
+    
+    # Compare groups
+    print("\nComparing two groups:")
+    comparison_results = analyzer.compare_groups(
+        pd.Series(group_a), pd.Series(group_b), test_type='auto'
+    )
+    print(f"Test used: {comparison_results['test_used']}")
+    print(f"P-value: {comparison_results['p_value']:.4f}")
+    print(f"Effect size (Cohen's d): {comparison_results['effect_size']:.3f}")
+    
+    # Test independence
+    print("\nTesting independence between categorical variables:")
+    independence_results = analyzer.test_independence(df['category1'], df['category2'])
+    print(f"Chi-square p-value: {independence_results['p_value']:.4f}")
+    print(f"Cramér's V: {independence_results['cramers_v']:.3f}")
+    
+    print("\n=== Feature Engineering ===")
+    
+    # Feature engineering
+    engineer = FeatureEngineer()
+    
+    # Create polynomial features
+    poly_df = engineer.create_polynomial_features(
+        df[['normal_var', 'skewed_var']], 
+        columns=['normal_var', 'skewed_var'], 
+        degree=2
+    )
+    print(f"Original features: {len(df.columns)}")
+    print(f"After polynomial features: {len(poly_df.columns)}")
+    
+    # Create time features
+    time_df = engineer.create_time_features(df, 'timestamp')
+    print(f"After time features: {len(time_df.columns)}")
+    
+    # Create interaction features
+    interaction_df = engineer.create_interaction_features(
+        df[['normal_var', 'skewed_var']], 
+        [('normal_var', 'skewed_var')]
+    )
+    print(f"After interaction features: {len(interaction_df.columns)}")
+    
+    print("\nAdvanced data analysis examples completed successfully!")
+```

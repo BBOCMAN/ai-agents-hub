@@ -1,0 +1,1020 @@
+# LangChain Framework Complete Guide
+
+## Core Architecture and Components
+
+### LangChain Fundamentals
+LangChain is a framework for developing applications powered by language models. Key principles:
+- **Modularity**: Composable components that can be mixed and matched
+- **Standardization**: Common interfaces for different types of components
+- **Observability**: Built-in logging and debugging capabilities
+- **Production-Ready**: Error handling, retries, and monitoring
+
+### Essential Imports and Setup
+```python
+# Core LangChain imports
+from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.schema import (
+    BaseMessage, HumanMessage, AIMessage, SystemMessage,
+    BaseOutputParser, AgentAction, AgentFinish
+)
+from langchain.prompts import (
+    PromptTemplate, ChatPromptTemplate, MessagesPlaceholder,
+    FewShotPromptTemplate, PipelinePromptTemplate
+)
+from langchain.chains import (
+    LLMChain, ConversationChain, SequentialChain,
+    SimpleSequentialChain, TransformChain
+)
+from langchain.memory import (
+    ConversationBufferMemory, ConversationSummaryMemory,
+    ConversationBufferWindowMemory, VectorStoreRetrieverMemory
+)
+from langchain.tools import Tool, BaseTool, StructuredTool
+from langchain.agents import (
+    AgentType, initialize_agent, AgentExecutor,
+    create_react_agent, create_openai_functions_agent
+)
+from langchain.callbacks import BaseCallbackHandler
+from langchain.schema.runnable import (
+    Runnable, RunnablePassthrough, RunnableLambda,
+    RunnableParallel, RunnableBranch
+)
+
+# Common utility imports
+import asyncio
+import json
+import logging
+from typing import Dict, List, Any, Optional, Union
+from pydantic import BaseModel, Field
+```
+
+## Language Models and Chat Models
+
+### Model Configuration Best Practices
+```python
+# Gemini configuration (production-ready)
+def get_gemini_llm(model="gemini-1.5-pro", temperature=0.1):
+    """Get configured Gemini model with error handling"""
+    try:
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            convert_system_message_to_human=True,
+            # Add retry configuration
+            max_retries=3,
+            # Add timeout
+            request_timeout=60
+        )
+    except Exception as e:
+        logging.error(f"Failed to initialize Gemini model: {e}")
+        # Fallback to different model or raise
+        raise
+
+# OpenAI configuration with fallback
+def get_openai_llm(model="gpt-3.5-turbo", temperature=0.1):
+    """Get configured OpenAI model with fallback"""
+    try:
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            max_retries=3,
+            request_timeout=60
+        )
+    except Exception as e:
+        logging.error(f"Failed to initialize OpenAI model: {e}")
+        # Try fallback model
+        return ChatOpenAI(model="gpt-3.5-turbo", temperature=0.1)
+
+# Model switching utility
+class ModelManager:
+    def __init__(self):
+        self.models = {}
+        self.current_model = None
+    
+    def register_model(self, name: str, model):
+        """Register a model with a name"""
+        self.models[name] = model
+    
+    def get_model(self, name: str = None):
+        """Get model by name or return current"""
+        if name:
+            return self.models.get(name, self.current_model)
+        return self.current_model
+    
+    def set_current(self, name: str):
+        """Set the current active model"""
+        if name in self.models:
+            self.current_model = self.models[name]
+        else:
+            raise ValueError(f"Model {name} not registered")
+
+# Usage
+model_manager = ModelManager()
+model_manager.register_model("gemini-pro", get_gemini_llm("gemini-1.5-pro"))
+model_manager.register_model("gemini-flash", get_gemini_llm("gemini-1.5-flash"))
+model_manager.set_current("gemini-pro")
+```
+
+## Advanced Prompt Engineering
+
+### Prompt Templates with Validation
+```python
+# Complex prompt template with validation
+class CodeGenerationPrompt:
+    def __init__(self):
+        self.system_template = """You are an expert Python developer. Your task is to generate high-quality, 
+production-ready code based on the user's requirements.
+
+Guidelines:
+1. Write clean, readable, and well-documented code
+2. Include proper error handling
+3. Follow Python best practices and PEP 8
+4. Add type hints where appropriate
+5. Include docstrings for functions and classes
+
+Context Information:
+{context}
+
+Available Tools: {available_tools}
+"""
+        
+        self.human_template = """
+Task: {task}
+
+Requirements:
+{requirements}
+
+Additional Context:
+{additional_context}
+
+Please generate the code and explain your approach.
+"""
+        
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_template),
+            ("human", self.human_template)
+        ])
+    
+    def format_prompt(self, task: str, requirements: str, 
+                     context: str = "", additional_context: str = "",
+                     available_tools: List[str] = None) -> str:
+        """Format the prompt with proper validation"""
+        
+        if not task.strip():
+            raise ValueError("Task cannot be empty")
+        
+        if not requirements.strip():
+            raise ValueError("Requirements cannot be empty")
+        
+        available_tools = available_tools or []
+        tools_str = ", ".join(available_tools) if available_tools else "None"
+        
+        return self.prompt.format_messages(
+            task=task,
+            requirements=requirements,
+            context=context,
+            additional_context=additional_context,
+            available_tools=tools_str
+        )
+
+# Few-shot prompt for code correction
+class CodeCorrectionPrompt:
+    def __init__(self):
+        self.examples = [
+            {
+                "input": "Fix this code: def divide(a, b): return a / b",
+                "output": """def divide(a: float, b: float) -> float:
+    \"\"\"Safely divide two numbers.
+    
+    Args:
+        a: The dividend
+        b: The divisor
+        
+    Returns:
+        The result of a/b
+        
+    Raises:
+        ValueError: If b is zero
+    \"\"\"
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b"""
+            },
+            {
+                "input": "Fix this code: import requests; data = requests.get('http://api.com').json()",
+                "output": """import requests
+from typing import Dict, Any
+
+def fetch_api_data(url: str, timeout: int = 30) -> Dict[str, Any]:
+    \"\"\"Safely fetch data from API.
+    
+    Args:
+        url: The API endpoint URL
+        timeout: Request timeout in seconds
+        
+    Returns:
+        JSON response as dictionary
+        
+    Raises:
+        requests.RequestException: If the request fails
+    \"\"\"
+    try:
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        raise requests.RequestException(f"API request failed: {e}")
+
+# Usage
+data = fetch_api_data('http://api.com')"""
+            }
+        ]
+        
+        self.example_prompt = PromptTemplate(
+            input_variables=["input", "output"],
+            template="Input: {input}\nOutput:\n{output}"
+        )
+        
+        self.main_prompt = FewShotPromptTemplate(
+            examples=self.examples,
+            example_prompt=self.example_prompt,
+            prefix="You are a code correction expert. Fix the following code by adding proper error handling, type hints, and documentation:",
+            suffix="Input: {code}\nOutput:",
+            input_variables=["code"]
+        )
+
+# Prompt composition for complex tasks
+class CompositePromptTemplate:
+    def __init__(self):
+        # Sub-prompts for different aspects
+        self.analysis_prompt = PromptTemplate(
+            input_variables=["code"],
+            template="Analyze this code for potential issues:\n{code}\n\nIssues found:"
+        )
+        
+        self.improvement_prompt = PromptTemplate(
+            input_variables=["code", "issues"],
+            template="Given this code:\n{code}\n\nAnd these issues:\n{issues}\n\nProvide improved version:"
+        )
+        
+        self.testing_prompt = PromptTemplate(
+            input_variables=["code"],
+            template="Generate comprehensive tests for this code:\n{code}\n\nTest code:"
+        )
+    
+    def create_pipeline_prompt(self):
+        """Create a pipeline prompt for comprehensive code improvement"""
+        return PipelinePromptTemplate(
+            final_prompt=PromptTemplate(
+                input_variables=["analysis", "improvement", "tests"],
+                template="""
+Code Analysis:
+{analysis}
+
+Improved Code:
+{improvement}
+
+Test Suite:
+{tests}
+"""
+            ),
+            pipeline_prompts=[
+                ("analysis", self.analysis_prompt),
+                ("improvement", self.improvement_prompt),
+                ("tests", self.testing_prompt)
+            ]
+        )
+```
+
+## Memory Systems for Code Assistant
+
+### Advanced Memory Implementations
+```python
+# Custom memory for code generation context
+class CodeGenerationMemory(ConversationBufferMemory):
+    """Specialized memory for code generation tasks"""
+    
+    def __init__(self):
+        super().__init__(
+            memory_key="chat_history",
+            return_messages=True,
+            input_key="input",
+            output_key="output"
+        )
+        self.code_context = {}
+        self.error_history = []
+        self.successful_patterns = []
+    
+    def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
+        """Save context with code-specific information"""
+        super().save_context(inputs, outputs)
+        
+        # Extract and store code-related context
+        if "code" in outputs.get("output", ""):
+            self.code_context[len(self.chat_memory.messages)] = {
+                "task": inputs.get("input", ""),
+                "generated_code": self._extract_code(outputs.get("output", "")),
+                "timestamp": self._get_timestamp()
+            }
+    
+    def add_error(self, error: str, context: str):
+        """Add error to history for learning"""
+        self.error_history.append({
+            "error": error,
+            "context": context,
+            "timestamp": self._get_timestamp()
+        })
+    
+    def add_successful_pattern(self, pattern: str, context: str):
+        """Add successful pattern for reuse"""
+        self.successful_patterns.append({
+            "pattern": pattern,
+            "context": context,
+            "timestamp": self._get_timestamp()
+        })
+    
+    def get_relevant_context(self, current_task: str) -> str:
+        """Get relevant context for current task"""
+        # Simple similarity matching (in practice, use embeddings)
+        relevant_items = []
+        
+        for item in self.successful_patterns:
+            if any(word in item["pattern"].lower() for word in current_task.lower().split()):
+                relevant_items.append(item)
+        
+        return "\n".join([item["pattern"] for item in relevant_items[-3:]])  # Last 3 relevant
+    
+    def _extract_code(self, text: str) -> str:
+        """Extract code blocks from text"""
+        import re
+        code_blocks = re.findall(r'```python\n(.*?)\n```', text, re.DOTALL)
+        return "\n".join(code_blocks)
+    
+    def _get_timestamp(self) -> str:
+        import datetime
+        return datetime.datetime.now().isoformat()
+
+# Vector-based memory for semantic search
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.schema import Document
+
+class SemanticCodeMemory:
+    """Memory system using vector embeddings for code patterns"""
+    
+    def __init__(self, embeddings_model=None):
+        self.embeddings = embeddings_model or OpenAIEmbeddings()
+        self.vector_store = None
+        self.documents = []
+    
+    def add_code_example(self, code: str, description: str, tags: List[str] = None):
+        """Add code example to memory"""
+        tags = tags or []
+        metadata = {
+            "type": "code_example",
+            "tags": tags,
+            "description": description
+        }
+        
+        doc = Document(page_content=code, metadata=metadata)
+        self.documents.append(doc)
+        
+        # Rebuild vector store
+        if self.documents:
+            self.vector_store = FAISS.from_documents(self.documents, self.embeddings)
+    
+    def search_similar_code(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """Search for similar code examples"""
+        if not self.vector_store:
+            return []
+        
+        results = self.vector_store.similarity_search(query, k=k)
+        return [
+            {
+                "code": doc.page_content,
+                "description": doc.metadata.get("description", ""),
+                "tags": doc.metadata.get("tags", [])
+            }
+            for doc in results
+        ]
+    
+    def get_code_by_tags(self, tags: List[str]) -> List[Dict[str, Any]]:
+        """Get code examples by tags"""
+        matching_docs = []
+        for doc in self.documents:
+            doc_tags = doc.metadata.get("tags", [])
+            if any(tag in doc_tags for tag in tags):
+                matching_docs.append({
+                    "code": doc.page_content,
+                    "description": doc.metadata.get("description", ""),
+                    "tags": doc_tags
+                })
+        return matching_docs
+
+# Hierarchical memory system
+class HierarchicalMemory:
+    """Multi-level memory system for different types of information"""
+    
+    def __init__(self):
+        self.short_term = ConversationBufferWindowMemory(k=5, return_messages=True)
+        self.long_term = ConversationSummaryMemory(return_messages=True)
+        self.semantic = SemanticCodeMemory()
+        self.facts = {}  # Persistent facts and patterns
+    
+    def add_interaction(self, inputs: Dict[str, Any], outputs: Dict[str, str]):
+        """Add interaction to appropriate memory levels"""
+        # Add to short-term memory
+        self.short_term.save_context(inputs, outputs)
+        
+        # Add to long-term memory (summarized)
+        self.long_term.save_context(inputs, outputs)
+        
+        # Extract and store code patterns
+        output_text = outputs.get("output", "")
+        if "```python" in output_text:
+            code = self._extract_code(output_text)
+            task = inputs.get("input", "")
+            self.semantic.add_code_example(code, task)
+    
+    def get_context(self, query: str) -> Dict[str, Any]:
+        """Get comprehensive context for query"""
+        return {
+            "recent_conversation": self.short_term.load_memory_variables({})["history"],
+            "conversation_summary": self.long_term.load_memory_variables({})["history"],
+            "similar_code": self.semantic.search_similar_code(query),
+            "relevant_facts": self._get_relevant_facts(query)
+        }
+    
+    def _extract_code(self, text: str) -> str:
+        import re
+        code_blocks = re.findall(r'```python\n(.*?)\n```', text, re.DOTALL)
+        return "\n".join(code_blocks)
+    
+    def _get_relevant_facts(self, query: str) -> List[str]:
+        """Get relevant facts based on query"""
+        query_lower = query.lower()
+        relevant = []
+        for fact_key, fact_value in self.facts.items():
+            if any(word in fact_key.lower() for word in query_lower.split()):
+                relevant.append(fact_value)
+        return relevant
+```
+
+## Chains and Composition Patterns
+
+### Production-Ready Chain Implementations
+```python
+# Sequential chain for code generation workflow
+class CodeGenerationChain:
+    """Complete chain for generating and validating code"""
+    
+    def __init__(self, llm, memory=None):
+        self.llm = llm
+        self.memory = memory or HierarchicalMemory()
+        self._setup_chains()
+    
+    def _setup_chains(self):
+        """Setup the chain components"""
+        
+        # Analysis chain
+        self.analysis_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["task", "context"],
+                template="""
+Analyze this programming task:
+Task: {task}
+Context: {context}
+
+Provide:
+1. Requirements analysis
+2. Approach strategy
+3. Potential challenges
+4. Recommended structure
+
+Analysis:"""
+            ),
+            output_key="analysis"
+        )
+        
+        # Code generation chain
+        self.generation_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["task", "analysis", "context"],
+                template="""
+Based on this analysis:
+{analysis}
+
+Generate Python code for this task:
+{task}
+
+Context: {context}
+
+Requirements:
+- Include proper error handling
+- Add type hints and docstrings
+- Follow best practices
+- Make it production-ready
+
+Code:"""
+            ),
+            output_key="generated_code"
+        )
+        
+        # Validation chain
+        self.validation_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["code", "task"],
+                template="""
+Review this generated code:
+{code}
+
+For task: {task}
+
+Check for:
+1. Syntax errors
+2. Logic issues
+3. Missing error handling
+4. Performance concerns
+5. Security issues
+
+Provide:
+- Issues found (if any)
+- Suggested improvements
+- Overall quality score (1-10)
+
+Review:"""
+            ),
+            output_key="validation"
+        )
+        
+        # Create sequential chain
+        self.main_chain = SequentialChain(
+            chains=[self.analysis_chain, self.generation_chain, self.validation_chain],
+            input_variables=["task", "context"],
+            output_variables=["analysis", "generated_code", "validation"],
+            verbose=True
+        )
+    
+    def generate_code(self, task: str, context: str = "") -> Dict[str, str]:
+        """Generate code with full workflow"""
+        try:
+            # Get memory context
+            memory_context = self.memory.get_context(task)
+            full_context = f"{context}\n\nRelevant History:\n{memory_context}"
+            
+            # Run the chain
+            result = self.main_chain({"task": task, "context": full_context})
+            
+            # Store in memory
+            self.memory.add_interaction(
+                {"input": task}, 
+                {"output": result["generated_code"]}
+            )
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Code generation failed: {e}")
+            return {
+                "analysis": "Error in analysis",
+                "generated_code": f"# Error generating code: {e}",
+                "validation": f"Generation failed: {e}"
+            }
+
+# Parallel processing chain
+class ParallelCodeAnalysisChain:
+    """Analyze code from multiple perspectives simultaneously"""
+    
+    def __init__(self, llm):
+        self.llm = llm
+        self._setup_parallel_chains()
+    
+    def _setup_parallel_chains(self):
+        """Setup parallel analysis chains"""
+        
+        # Security analysis
+        self.security_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["code"],
+                template="Analyze this code for security vulnerabilities:\n{code}\n\nSecurity Analysis:"
+            ),
+            output_key="security_analysis"
+        )
+        
+        # Performance analysis
+        self.performance_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["code"],
+                template="Analyze this code for performance issues:\n{code}\n\nPerformance Analysis:"
+            ),
+            output_key="performance_analysis"
+        )
+        
+        # Style analysis
+        self.style_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["code"],
+                template="Analyze this code for style and best practices:\n{code}\n\nStyle Analysis:"
+            ),
+            output_key="style_analysis"
+        )
+        
+        # Create parallel chain using RunnableParallel
+        from langchain.schema.runnable import RunnableParallel
+        
+        self.parallel_chain = RunnableParallel(
+            security=self.security_chain,
+            performance=self.performance_chain,
+            style=self.style_chain
+        )
+    
+    def analyze_code(self, code: str) -> Dict[str, str]:
+        """Run parallel analysis on code"""
+        try:
+            results = self.parallel_chain.invoke({"code": code})
+            return results
+        except Exception as e:
+            logging.error(f"Parallel analysis failed: {e}")
+            return {
+                "security": f"Security analysis failed: {e}",
+                "performance": f"Performance analysis failed: {e}",
+                "style": f"Style analysis failed: {e}"
+            }
+
+# Custom transform chain for code preprocessing
+class CodePreprocessingChain:
+    """Preprocess code before analysis or generation"""
+    
+    def __init__(self):
+        self.transform_chain = TransformChain(
+            input_variables=["raw_code"],
+            output_variables=["processed_code", "metadata"],
+            transform=self._preprocess_code
+        )
+    
+    def _preprocess_code(self, inputs: Dict[str, str]) -> Dict[str, Any]:
+        """Preprocess and analyze code structure"""
+        raw_code = inputs["raw_code"]
+        
+        # Extract imports
+        import re
+        import_lines = re.findall(r'^import .*|^from .* import .*', raw_code, re.MULTILINE)
+        
+        # Extract function definitions
+        function_defs = re.findall(r'^def [\w_]+\([^)]*\):', raw_code, re.MULTILINE)
+        
+        # Extract class definitions
+        class_defs = re.findall(r'^class [\w_]+[^:]*:', raw_code, re.MULTILINE)
+        
+        # Clean and format code
+        processed_code = self._clean_code(raw_code)
+        
+        metadata = {
+            "imports": import_lines,
+            "functions": function_defs,
+            "classes": class_defs,
+            "line_count": len(raw_code.split('\n')),
+            "complexity_estimate": self._estimate_complexity(raw_code)
+        }
+        
+        return {
+            "processed_code": processed_code,
+            "metadata": metadata
+        }
+    
+    def _clean_code(self, code: str) -> str:
+        """Clean and format code"""
+        # Remove extra whitespace
+        lines = [line.rstrip() for line in code.split('\n')]
+        
+        # Remove empty lines at start and end
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        
+        return '\n'.join(lines)
+    
+    def _estimate_complexity(self, code: str) -> str:
+        """Estimate code complexity"""
+        line_count = len(code.split('\n'))
+        
+        if line_count < 10:
+            return "low"
+        elif line_count < 50:
+            return "medium"
+        else:
+            return "high"
+
+# Branch chain for different code generation strategies
+class StrategyBranchChain:
+    """Choose different generation strategies based on task type"""
+    
+    def __init__(self, llm):
+        self.llm = llm
+        self._setup_strategies()
+    
+    def _setup_strategies(self):
+        """Setup different strategy chains"""
+        
+        # Simple script strategy
+        self.script_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["task"],
+                template="Generate a simple Python script for: {task}\n\nScript:"
+            )
+        )
+        
+        # OOP strategy
+        self.oop_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["task"],
+                template="Generate object-oriented Python code for: {task}\n\nInclude classes, methods, and proper structure.\n\nCode:"
+            )
+        )
+        
+        # Functional strategy
+        self.functional_chain = LLMChain(
+            llm=self.llm,
+            prompt=PromptTemplate(
+                input_variables=["task"],
+                template="Generate functional Python code for: {task}\n\nUse functions, pure functions where possible, minimal side effects.\n\nCode:"
+            )
+        )
+        
+        # Route function
+        def route_strategy(inputs: Dict[str, str]) -> str:
+            task = inputs["task"].lower()
+            
+            if any(word in task for word in ["class", "object", "inheritance", "method"]):
+                return "oop"
+            elif any(word in task for word in ["function", "functional", "lambda", "map", "filter"]):
+                return "functional"
+            else:
+                return "script"
+        
+        # Create branch chain
+        from langchain.schema.runnable import RunnableBranch
+        
+        self.branch_chain = RunnableBranch(
+            (lambda x: route_strategy(x) == "oop", self.oop_chain),
+            (lambda x: route_strategy(x) == "functional", self.functional_chain),
+            self.script_chain  # default
+        )
+    
+    def generate_code(self, task: str) -> str:
+        """Generate code using appropriate strategy"""
+        try:
+            result = self.branch_chain.invoke({"task": task})
+            return result
+        except Exception as e:
+            logging.error(f"Strategy generation failed: {e}")
+            return f"# Error in code generation: {e}"
+```
+
+## Error Handling and Debugging
+
+### Comprehensive Error Management
+```python
+# Custom exception hierarchy for LangChain operations
+class LangChainError(Exception):
+    """Base exception for LangChain operations"""
+    pass
+
+class ModelError(LangChainError):
+    """Error with language model"""
+    pass
+
+class ChainError(LangChainError):
+    """Error in chain execution"""
+    pass
+
+class MemoryError(LangChainError):
+    """Error in memory operations"""
+    pass
+
+class PromptError(LangChainError):
+    """Error in prompt formatting"""
+    pass
+
+# Error handling decorator
+def handle_langchain_errors(func):
+    """Decorator for handling LangChain operation errors"""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logging.error(f"Error in {func.__name__}: {e}")
+            
+            # Categorize error
+            if "model" in str(e).lower() or "api" in str(e).lower():
+                raise ModelError(f"Model error in {func.__name__}: {e}")
+            elif "chain" in str(e).lower():
+                raise ChainError(f"Chain error in {func.__name__}: {e}")
+            elif "memory" in str(e).lower():
+                raise MemoryError(f"Memory error in {func.__name__}: {e}")
+            elif "prompt" in str(e).lower():
+                raise PromptError(f"Prompt error in {func.__name__}: {e}")
+            else:
+                raise LangChainError(f"Unknown error in {func.__name__}: {e}")
+    
+    return wrapper
+
+# Retry mechanism for LangChain operations
+import time
+import random
+
+def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60):
+    """Retry decorator with exponential backoff"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    
+                    delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                    logging.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s")
+                    time.sleep(delay)
+            
+            return None
+        return wrapper
+    return decorator
+
+# Circuit breaker for model calls
+class CircuitBreaker:
+    """Circuit breaker pattern for LangChain model calls"""
+    
+    def __init__(self, failure_threshold=5, timeout=60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+    
+    def call(self, func, *args, **kwargs):
+        """Execute function with circuit breaker protection"""
+        if self.state == "OPEN":
+            if time.time() - self.last_failure_time > self.timeout:
+                self.state = "HALF_OPEN"
+            else:
+                raise LangChainError("Circuit breaker is OPEN")
+        
+        try:
+            result = func(*args, **kwargs)
+            if self.state == "HALF_OPEN":
+                self.state = "CLOSED"
+                self.failure_count = 0
+            return result
+        
+        except Exception as e:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            
+            if self.failure_count >= self.failure_threshold:
+                self.state = "OPEN"
+            
+            raise e
+
+# Comprehensive debugging utilities
+class LangChainDebugger:
+    """Debugging utilities for LangChain operations"""
+    
+    def __init__(self):
+        self.logs = []
+        self.performance_data = {}
+    
+    def log_chain_execution(self, chain_name: str, inputs: Dict, outputs: Dict, 
+                           duration: float, success: bool):
+        """Log chain execution details"""
+        log_entry = {
+            "timestamp": time.time(),
+            "chain_name": chain_name,
+            "inputs": inputs,
+            "outputs": outputs,
+            "duration": duration,
+            "success": success
+        }
+        self.logs.append(log_entry)
+        
+        # Update performance data
+        if chain_name not in self.performance_data:
+            self.performance_data[chain_name] = {
+                "total_calls": 0,
+                "successful_calls": 0,
+                "total_duration": 0,
+                "average_duration": 0
+            }
+        
+        perf = self.performance_data[chain_name]
+        perf["total_calls"] += 1
+        if success:
+            perf["successful_calls"] += 1
+        perf["total_duration"] += duration
+        perf["average_duration"] = perf["total_duration"] / perf["total_calls"]
+    
+    def get_performance_report(self) -> Dict[str, Any]:
+        """Get performance report for all chains"""
+        report = {}
+        for chain_name, data in self.performance_data.items():
+            success_rate = data["successful_calls"] / data["total_calls"] if data["total_calls"] > 0 else 0
+            report[chain_name] = {
+                "success_rate": success_rate,
+                "average_duration": data["average_duration"],
+                "total_calls": data["total_calls"]
+            }
+        return report
+    
+    def analyze_failures(self) -> List[Dict[str, Any]]:
+        """Analyze failed executions"""
+        failures = [log for log in self.logs if not log["success"]]
+        
+        # Group by chain
+        failure_analysis = {}
+        for failure in failures:
+            chain_name = failure["chain_name"]
+            if chain_name not in failure_analysis:
+                failure_analysis[chain_name] = []
+            failure_analysis[chain_name].append(failure)
+        
+        return failure_analysis
+
+# Usage example with comprehensive error handling
+class RobustCodeGenerator:
+    """Robust code generator with comprehensive error handling"""
+    
+    def __init__(self, llm):
+        self.llm = llm
+        self.circuit_breaker = CircuitBreaker()
+        self.debugger = LangChainDebugger()
+        self.memory = HierarchicalMemory()
+    
+    @handle_langchain_errors
+    @retry_with_backoff(max_retries=3)
+    def generate_code_safely(self, task: str, context: str = "") -> Dict[str, Any]:
+        """Generate code with comprehensive error handling"""
+        start_time = time.time()
+        success = False
+        result = {}
+        
+        try:
+            # Use circuit breaker for model calls
+            def _generate():
+                chain = CodeGenerationChain(self.llm, self.memory)
+                return chain.generate_code(task, context)
+            
+            result = self.circuit_breaker.call(_generate)
+            success = True
+            
+        except Exception as e:
+            result = {
+                "analysis": "Error in analysis",
+                "generated_code": f"# Error: {e}",
+                "validation": f"Failed: {e}",
+                "error": str(e)
+            }
+            logging.error(f"Code generation failed: {e}")
+        
+        finally:
+            duration = time.time() - start_time
+            self.debugger.log_chain_execution(
+                "code_generation", 
+                {"task": task, "context": context},
+                result,
+                duration,
+                success
+            )
+        
+        return result
+    
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get system health status"""
+        return {
+            "circuit_breaker_state": self.circuit_breaker.state,
+            "failure_count": self.circuit_breaker.failure_count,
+            "performance_report": self.debugger.get_performance_report(),
+            "recent_failures": self.debugger.analyze_failures()
+        }
+```
+
+This comprehensive LangChain documentation provides:
+
+1. **Core Setup**: Model configuration, error handling, fallbacks
+2. **Advanced Prompts**: Validation, few-shot examples, composition
+3. **Memory Systems**: Code-specific memory, semantic search, hierarchical storage
+4. **Chain Patterns**: Sequential, parallel, preprocessing, strategy selection
+5. **Error Handling**: Custom exceptions, retries, circuit breakers, debugging
+
+All examples are production-ready with proper error handling and logging, specifically designed for code generation and correction tasks.

@@ -1,0 +1,12 @@
+langgraph
+langchain
+langchain-google-genai
+faiss-cpu
+langchain-community
+langchain-experimental
+pypdf
+beautifulsoup4
+requests
+python-dotenv
+pydantic
+typing-extensions
