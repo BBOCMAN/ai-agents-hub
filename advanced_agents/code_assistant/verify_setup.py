@@ -4,51 +4,78 @@ Run this to verify everything is working correctly
 """
 
 import os
-import sys
+import importlib.util
 from pathlib import Path
+
 
 def test_imports():
     """Test if all required modules can be imported"""
     print("🧪 Testing imports...")
-    
-    try:
-        import langchain
-        print("✅ LangChain imported successfully")
-    except ImportError as e:
-        print(f"❌ LangChain import failed: {e}")
+
+    # Test LangChain
+    if importlib.util.find_spec("langchain") is not None:
+        try:
+            import langchain  # noqa: F401
+
+            print("✅ LangChain imported successfully")
+        except ImportError as e:
+            print(f"❌ LangChain import failed: {e}")
+            return False
+    else:
+        print("❌ LangChain module not found")
         return False
-    
-    try:
-        import langgraph
-        print("✅ LangGraph imported successfully")
-    except ImportError as e:
-        print(f"❌ LangGraph import failed: {e}")
+
+    # Test LangGraph
+    if importlib.util.find_spec("langgraph") is not None:
+        try:
+            import langgraph  # noqa: F401
+
+            print("✅ LangGraph imported successfully")
+        except ImportError as e:
+            print(f"❌ LangGraph import failed: {e}")
+            return False
+    else:
+        print("❌ LangGraph module not found")
         return False
-    
-    try:
-        import faiss
-        print("✅ FAISS imported successfully")
-    except ImportError as e:
-        print(f"❌ FAISS import failed: {e}")
+
+    # Test FAISS
+    if importlib.util.find_spec("faiss") is not None:
+        try:
+            import faiss  # noqa: F401
+
+            print("✅ FAISS imported successfully")
+        except ImportError as e:
+            print(f"❌ FAISS import failed: {e}")
+            return False
+    else:
+        print("❌ FAISS module not found")
         return False
-    
-    try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        print("✅ Google Generative AI imported successfully")
-    except ImportError as e:
-        print(f"❌ Google Generative AI import failed: {e}")
+
+    # Test Google Generative AI
+    if importlib.util.find_spec("langchain_google_genai") is not None:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: F401
+
+            print("✅ Google Generative AI imported successfully")
+        except ImportError as e:
+            print(f"❌ Google Generative AI import failed: {e}")
+            return False
+    else:
+        print("❌ langchain_google_genai module not found")
         return False
-    
+
     return True
+
 
 def test_environment():
     """Test environment configuration"""
     print("\n🔧 Testing environment...")
-    
+
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
-        
+
         api_key = os.getenv("GOOGLE_API_KEY")
         if api_key:
             print("✅ GOOGLE_API_KEY found in environment")
@@ -57,27 +84,28 @@ def test_environment():
             print("⚠️ GOOGLE_API_KEY not found in .env file")
             print("   Please copy .env.example to .env and add your API key")
             return False
-            
+
     except Exception as e:
         print(f"❌ Environment test failed: {e}")
         return False
-    
+
     return True
+
 
 def test_file_structure():
     """Test if all required files exist"""
     print("\n📁 Testing file structure...")
-    
+
     required_files = [
         "main.py",
-        "code_generator.py", 
+        "code_generator.py",
         "document_loader.py",
         "validators.py",
         "config.py",
         "requirements.txt",
-        ".env.example"
+        ".env.example",
     ]
-    
+
     missing_files = []
     for file in required_files:
         if Path(file).exists():
@@ -85,17 +113,18 @@ def test_file_structure():
         else:
             print(f"❌ {file} missing")
             missing_files.append(file)
-    
+
     if missing_files:
         print(f"\n⚠️ Missing files: {missing_files}")
         return False
-    
+
     return True
+
 
 def test_docs_directory():
     """Test if documentation files exist"""
     print("\n📚 Testing documentation...")
-    
+
     docs_dir = Path("docs")
     if docs_dir.exists():
         doc_files = list(docs_dir.glob("*.txt"))
@@ -111,20 +140,21 @@ def test_docs_directory():
     else:
         print("❌ docs/ directory not found")
         return False
-    
+
     return True
+
 
 def test_vector_store():
     """Test vector store directory"""
     print("\n🗂️ Testing vector store...")
-    
+
     vector_dir = Path("vector_store")
     if vector_dir.exists():
         print("✅ vector_store/ directory exists")
-        
+
         faiss_file = vector_dir / "index.faiss"
         pkl_file = vector_dir / "index.pkl"
-        
+
         if faiss_file.exists() and pkl_file.exists():
             print("✅ Vector store files already exist")
             print(f"   📁 {faiss_file.name} ({faiss_file.stat().st_size} bytes)")
@@ -134,22 +164,23 @@ def test_vector_store():
     else:
         print("❌ vector_store/ directory not found")
         return False
-    
+
     return True
+
 
 def main():
     """Run all tests"""
     print("🚀 Code Assistant Setup Verification")
     print("=" * 50)
-    
+
     tests = [
         ("Import Test", test_imports),
-        ("Environment Test", test_environment), 
+        ("Environment Test", test_environment),
         ("File Structure Test", test_file_structure),
         ("Documentation Test", test_docs_directory),
-        ("Vector Store Test", test_vector_store)
+        ("Vector Store Test", test_vector_store),
     ]
-    
+
     results = []
     for test_name, test_func in tests:
         print(f"\n🧪 Running {test_name}...")
@@ -159,20 +190,20 @@ def main():
         except Exception as e:
             print(f"❌ {test_name} failed with exception: {e}")
             results.append((test_name, False))
-    
+
     print("\n" + "=" * 50)
     print("📊 Test Results Summary:")
     print("=" * 50)
-    
+
     passed = 0
     for test_name, result in results:
         status = "✅ PASS" if result else "❌ FAIL"
         print(f"{status} - {test_name}")
         if result:
             passed += 1
-    
+
     print(f"\n🎯 {passed}/{len(tests)} tests passed")
-    
+
     if passed == len(tests):
         print("\n🎉 All tests passed! Your Code Assistant is ready to use!")
         print("\n📖 Next steps:")
@@ -185,6 +216,7 @@ def main():
         print("1. Make sure virtual environment is activated")
         print("2. Copy .env.example to .env and add your API key")
         print("3. Run: pip install -r requirements.txt")
+
 
 if __name__ == "__main__":
     main()
