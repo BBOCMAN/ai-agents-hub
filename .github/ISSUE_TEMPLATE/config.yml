@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/bitphonix/ai-agents-hub/discussions
+    about: Ask questions, share ideas, and discuss AI agent development
+  - name: 📚 Documentation
+    url: https://github.com/bitphonix/ai-agents-hub/blob/main/README.md
+    about: Read our comprehensive documentation and guides
+  - name: 🚀 Code Assistant Guide
+    url: https://github.com/bitphonix/ai-agents-hub/blob/main/advanced_agents/code_assistant/README.md
+    about: Detailed guide for our flagship LangGraph code assistant

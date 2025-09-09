@@ -1,0 +1,54 @@
+title: "💡 Share Your AI Agent Ideas"
+labels: ["ideas"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your AI agent ideas! This helps our community discover new possibilities and collaborate on exciting projects.
+        
+  - type: textarea
+    id: agent-concept
+    attributes:
+      label: 🚀 Agent Idea
+      description: Describe your AI agent concept
+      placeholder: "I'm thinking about an agent that..."
+    validations:
+      required: true
+      
+  - type: textarea
+    id: problem-solving
+    attributes:
+      label: 🎯 Problem it solves
+      description: What real-world problem would this address?
+      placeholder: "This agent would help users..."
+    validations:
+      required: true
+      
+  - type: textarea
+    id: technology-approach
+    attributes:
+      label: 🏗️ Technology approach
+      description: What tech stack or approach would work best?
+      placeholder: "I think we could use LangGraph + RAG + ..."
+    validations:
+      required: false
+      
+  - type: textarea
+    id: challenges
+    attributes:
+      label: ⚠️ Potential challenges
+      description: What obstacles do you foresee?
+      placeholder: "Some challenges might include..."
+    validations:
+      required: false
+      
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 🤝 Contribution Interest
+      description: How would you like to contribute?
+      options:
+        - label: I can implement this myself
+        - label: I can collaborate with others
+        - label: I need help with implementation
+        - label: I'm just sharing the idea
