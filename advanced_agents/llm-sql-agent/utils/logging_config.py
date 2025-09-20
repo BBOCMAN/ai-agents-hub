@@ -10,7 +10,7 @@ def setup_logging(
     log_level: str = "INFO",
     log_file: Optional[str] = None,
     console_output: Optional[bool] = True,
-    config_file: str = "config.yaml"
+    config_file: str = "config.yaml",
 ) -> None:
     """
     Set up logging configuration for the SQL Agent.
@@ -25,17 +25,17 @@ def setup_logging(
     # Load config if available
     try:
         if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
+            with open(config_file, "r") as f:
                 config = yaml.safe_load(f)
-                logging_config = config.get('logging', {})
+                logging_config = config.get("logging", {})
 
                 # Use config values only if arguments were not provided
                 if not log_level:
-                    log_level = logging_config.get('level', "INFO")
+                    log_level = logging_config.get("level", "INFO")
                 if not log_file:
-                    log_file = logging_config.get('file')
+                    log_file = logging_config.get("file")
                 if console_output is None:
-                    console_output = logging_config.get('console_output', True)
+                    console_output = logging_config.get("console_output", True)
     except Exception:
         # If config loading fails, use defaults
         pass
@@ -48,7 +48,7 @@ def setup_logging(
     # Configure logging format
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # Set up root logger
@@ -76,7 +76,6 @@ def setup_logging(
     logger.info(f"Console output: {console_output}")
     logger.info(f"Log file: {log_file if log_file else 'None'}")
     logger.info("=" * 60)
-
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -4,7 +4,7 @@ Utility modules for the LLM SQL Agent.
 
 This package contains:
 - gemini_config: Gemini model management and selection
-- helpers: Query validation and formatting utilities  
+- helpers: Query validation and formatting utilities
 - logging_config: Structured logging setup
 """
 
