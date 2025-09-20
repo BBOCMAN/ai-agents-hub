@@ -1,0 +1,49 @@
+# Agent Configuration
+agent:
+  name: "SQL Agent"
+  version: "1.0.0"
+  max_reasoning_steps: 10
+  enable_error_recovery: true
+  verbose_logging: true
+
+# Gemini Model Configuration
+gemini:
+  default_model: "flash"  
+  models:
+    flash:
+      name: "gemini-1.5-flash"
+      temperature: 0.1      
+      max_tokens: 8192
+      use_cases: ["simple_queries", "schema_inspection", "response_synthesis"]
+    pro:
+      name: "gemini-1.5-pro"
+      temperature: 0.2      # Slightly higher for creative problem solving
+      max_tokens: 8192
+      use_cases: ["complex_reasoning", "error_recovery", "multi_step_planning"]
+
+# Database Configuration
+database:
+  type: "sqlite"
+  path: "./database/agent_database.db"
+  enable_foreign_keys: true
+  query_timeout_seconds: 30
+  max_retry_attempts: 3
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/agent.log"
+  console_output: true
+
+# Tool Configuration
+tools:
+  sql_query_executor:
+    enabled: true
+    safe_mode: true 
+  schema_inspector:
+    enabled: true
+    cache_results: true
+  error_recovery:
+    enabled: true
+    max_attempts: 3
