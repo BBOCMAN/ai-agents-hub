@@ -1,0 +1,13 @@
+langchain
+langgraph
+langchain-community
+langchain-google-genai
+google-generativeai
+sqlalchemy
+python-dotenv
+pydantic
+pyyaml
+pytest
+pytest-asyncio
+colorama
+tabulate
